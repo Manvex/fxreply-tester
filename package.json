@@ -6,7 +6,9 @@
     "build": "vite build",
     "preview": "wrangler pages dev",
     "deploy": "npm run build && wrangler pages deploy",
-    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "test": "node tests/session.test.mjs",
+    "test:setup": "npx playwright install chromium"
   },
   "dependencies": {
     "hono": "^4.13.5"
@@ -14,6 +16,7 @@
   "devDependencies": {
     "@hono/vite-build": "^1.11.1",
     "@hono/vite-dev-server": "^0.26.1",
+    "playwright": "^1.62.1",
     "vite": "^8.1.4",
     "wrangler": "^4.110.0"
   }

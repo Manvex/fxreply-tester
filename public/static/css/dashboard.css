@@ -160,16 +160,7 @@
 }
 .market-card .mc-spark { height: 26px; margin-top: 10px; }
 
-/* Category chips */
-.chips { display: flex; gap: 7px; flex-wrap: wrap; }
-.chip {
-  background: var(--s-1); border: 1px solid var(--line); color: var(--t-2);
-  padding: 6px 14px; border-radius: 20px; cursor: pointer;
-  font-size: 12.5px; font-weight: 500; font-family: var(--font);
-  transition: all .13s var(--ease); display: inline-flex; align-items: center; gap: 7px;
-}
-.chip:hover { border-color: var(--line-str); color: var(--t-1); }
-.chip.active { background: var(--brand); color: #06221d; border-color: transparent; font-weight: 620; }
+/* Category chips — base styles are in theme.css */
 .chip .chip-n { font-size: 10.5px; opacity: .7; font-variant-numeric: tabular-nums; }
 
 /* ==========================================================================
@@ -223,21 +214,9 @@
 .wiz-step { display: none; }
 .wiz-step.active { display: block; animation: pageIn .2s var(--ease); }
 
-.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px 18px; }
-.form-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
-.form-row-full { grid-column: 1 / -1; }
-
-.callout {
-  display: flex; gap: 12px; padding: 13px 15px;
-  background: var(--info-soft); border: 1px solid rgba(98,168,245,.22);
-  border-radius: var(--r-md); font-size: 12.5px; color: var(--t-2); line-height: 1.55;
-}
-.callout i { color: var(--info); font-size: 13px; margin-top: 2px; flex-shrink: 0; }
-.callout b { color: var(--t-1); font-weight: 600; }
-.callout.warn { background: var(--warn-soft); border-color: rgba(240,180,94,.22); }
-.callout.warn i { color: var(--warn); }
-.callout.brand { background: var(--brand-fade); border-color: rgba(77,212,192,.22); }
-.callout.brand i { color: var(--brand); }
+/* .form-grid / .callout / .chip / .kbd / .section-head now live in theme.css so
+   the terminal page gets them too. Only dashboard-specific tweaks stay here. */
+.form-grid { gap: 16px 18px; }
 
 /* Selectable option cards (radio-like) */
 .opt-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 11px; }
@@ -312,11 +291,6 @@
 .prose .anchor-h { color: var(--t-4); font-size: 13px; margin-left: 8px; opacity: 0; transition: opacity .13s; }
 .prose h2:hover .anchor-h, .prose h3:hover .anchor-h { opacity: 1; }
 
-.kbd {
-  display: inline-block; font-family: var(--mono); font-size: 11px;
-  background: var(--s-3); border: 1px solid var(--line-str); border-bottom-width: 2px;
-  border-radius: 4px; padding: 1px 6px; color: var(--t-1); min-width: 20px; text-align: center;
-}
 
 /* Faq accordion */
 .faq-item { border: 1px solid var(--line); border-radius: var(--r-md); margin-bottom: 9px; overflow: hidden; background: var(--s-1); }

@@ -61,7 +61,11 @@ const Draw = (() => {
     tool = t;
     pending = null;
     canvas.classList.toggle('drawing', t !== 'cursor');
-    document.querySelectorAll('.draw-btn[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
+    // NOTE: the toolbar buttons are .tool-btn (the old selector was .draw-btn,
+    // which matched nothing — that is why the toolbar highlight got stuck on
+    // the last clicked tool after a drawing finished).
+    document.querySelectorAll('.tool-btn[data-tool]').forEach(b =>
+      b.classList.toggle('active', b.dataset.tool === t));
   }
 
   function toggleMagnet() { magnet = !magnet; return magnet; }
@@ -110,11 +114,7 @@ const Draw = (() => {
     const t = x2t(x), p = y2p(y);
     if (t === null || p === null) return;
 
-    if (tool === 'cursor') return; // canvas has pointer-events none in cursor mode anyway
-
-    if (tool === 'select') {
-      return;
-    }
+    if (tool === 'cursor' || tool === 'select') return; // canvas is click-through here
 
     const s = snap(t, p);
 
@@ -363,7 +363,13 @@ const Draw = (() => {
     return Number(p).toFixed(Math.min(d, 6));
   }
 
-  function deleteSelected() { if (selected >= 0) { drawings.splice(selected, 1); selected = -1; save(); } }
+  function deleteSelected() {
+    if (selected >= 0) { drawings.splice(selected, 1); selected = -1; save(); render(); return true; }
+    // nothing selected: drop the most recent drawing, which is what people
+    // actually mean when they hit the eraser right after drawing something
+    if (drawings.length) { drawings.pop(); save(); render(); return true; }
+    return false;
+  }
   function deleteAll() { drawings = []; selected = -1; save(); render(); }
 
   return { init, setTool, setStoreKey, toggleMagnet, deleteSelected, deleteAll, get tool() { return tool; } };

@@ -6,16 +6,62 @@
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
+  // ---- account settings: persisted so what you set is what you get --------
+  const SETTINGS_KEY = 'bt_manual_settings';
+  const DEFAULT_SETTINGS = { balance: 100000, leverage: 100, spread: 0.5, commission: 3.5, propMode: 'none' };
+
+  function readSettings() {
+    try {
+      const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
+      if (!s) return { ...DEFAULT_SETTINGS };
+      return {
+        balance: Number(s.balance) || DEFAULT_SETTINGS.balance,
+        leverage: parseInt(s.leverage) || DEFAULT_SETTINGS.leverage,
+        spread: Number.isFinite(+s.spread) ? +s.spread : DEFAULT_SETTINGS.spread,
+        commission: Number.isFinite(+s.commission) ? +s.commission : DEFAULT_SETTINGS.commission,
+        propMode: s.propMode || 'none',
+      };
+    } catch (_) { return { ...DEFAULT_SETTINGS }; }
+  }
+
   const App = {
     currentSymbol: 'EURUSD',
     currentTF: '1h',
     get currentSymbolInfo() { return getSymbol(this.currentSymbol); },
-    manualSettings: { balance: 100000, leverage: 100, spread: 0.5, commission: 3.5, propMode: 'none' },
+    manualSettings: readSettings(),
     chartRange: { from: null, to: null },
   };
   window.App = App;
 
-  const fmt$ = (v) => (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString(undefined,
+  /**
+   * Single writer for the manual/session account settings. Persists, mirrors
+   * into every dialog and — crucially — never resets a live session's broker.
+   */
+  App.setManualSettings = (s, opts = {}) => {
+    App.manualSettings = {
+      balance: Number(s.balance) || DEFAULT_SETTINGS.balance,
+      leverage: parseInt(s.leverage) || DEFAULT_SETTINGS.leverage,
+      spread: Number.isFinite(+s.spread) ? +s.spread : 0,
+      commission: Number.isFinite(+s.commission) ? +s.commission : 0,
+      propMode: s.propMode || 'none',
+    };
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(App.manualSettings)); } catch (_) {}
+    syncSettingsDialog();
+    if (!Replay.isActive()) App.resetAccountUI();
+    if (!opts.silent) App.toast('Account settings saved', 'ok');
+    return App.manualSettings;
+  };
+
+  function syncSettingsDialog() {
+    const s = App.manualSettings;
+    if ($('#am-balance')) $('#am-balance').value = s.balance;
+    if ($('#am-leverage')) $('#am-leverage').value = String(s.leverage);
+    if ($('#am-spread')) $('#am-spread').value = s.spread;
+    if ($('#am-commission')) $('#am-commission').value = s.commission;
+    if ($('#am-prop')) $('#am-prop').value = s.propMode;
+  }
+
+  const fmt$ = (v) => (v < 0 ? '-$' : '$') + Math.abs(Number(v) || 0).toLocaleString(undefined,
     { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const cls = (v) => v > 0 ? 'up' : v < 0 ? 'down' : '';
   App.fmt$ = fmt$;
@@ -43,17 +89,28 @@
     $('#backdrop').classList.remove('hidden');
   }
   App.openDialog = openDialog;
+  App.anyDialogOpen = () => $$('.dialog:not(.hidden)').length > 0;
   $('#backdrop').addEventListener('click', App.closeModals);
   $$('.dialog-close').forEach(b => b.addEventListener('click', App.closeModals));
-  window.addEventListener('keydown', e => { if (e.key === 'Escape') App.closeModals(); });
+  window.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (TradeOverlay.isPicking()) { TradeOverlay.cancelPick(); return; }
+    App.closeModals();
+  });
 
   // ------------------------------------------------------------------ chart
   ChartMgr.init($('#chart-container'));
   Draw.init($('#draw-canvas'), $('#chart-wrap'));
+  TradeOverlay.init($('#trade-canvas'), $('#chart-wrap'));
 
-  ChartMgr.chart.subscribeCrosshairMove(param => {
+  // The legend is a function, not just a crosshair callback, so it is always
+  // populated — before you ever move the mouse, and after every replay step.
+  // (Previously it only filled in on crosshair move, so it read as "blank/
+  // disappearing" during a session.)
+  function renderLegend(param) {
     const info = App.currentSymbolInfo;
     const legend = $('#chart-legend');
+    if (!legend) return;
     let bar = null;
     if (param && param.time && param.seriesData) bar = param.seriesData.get(ChartMgr.series);
     if (!bar) { const c = ChartMgr.candles; bar = c[c.length - 1]; }
@@ -84,7 +141,9 @@
         <span><b class="${k}">${chg >= 0 ? '+' : ''}${chg.toFixed(dg)} (${chgPct >= 0 ? '+' : ''}${chgPct.toFixed(2)}%)</b></span>
       </div>
       ${inds ? `<div class="lg-inds">${inds}</div>` : ''}`;
-  });
+  }
+  App.renderLegend = renderLegend;
+  ChartMgr.chart.subscribeCrosshairMove(renderLegend);
 
   // ------------------------------------------------------------------ loading
   function setLoading(on, text, pct) {
@@ -100,8 +159,21 @@
     '1h': 320 * 86400, '4h': 900 * 86400, '1d': 8 * 365 * 86400, '1w': 15 * 365 * 86400,
   };
 
+  /**
+   * Guard: switching symbol or timeframe destroys the session's candle array,
+   * so ask instead of silently wiping the user's trades.
+   */
+  function confirmLeaveSession(what) {
+    if (!Replay.isActive()) return true;
+    const ok = confirm(`A backtesting session is running.\n\nChanging the ${what} will end it and discard its trades. Continue?`);
+    if (ok) Replay.exit();
+    return ok;
+  }
+
+  let loadSeq = 0;
   async function loadChart() {
     const info = App.currentSymbolInfo;
+    const seq = ++loadSeq;
     setLoading(true, 'Downloading real market data…', 0);
     $('#symbol-btn .sb-sym').textContent = App.currentSymbol;
     $('#symbol-btn .sb-src').textContent = info.source === 'binance' ? 'Binance' : 'Dukascopy';
@@ -113,12 +185,14 @@
 
     try {
       const candles = await DataStore.load(App.currentSymbol, App.currentTF, from, now,
-        (p) => setLoading(true, 'Downloading real market data…', p));
+        (p) => { if (seq === loadSeq) setLoading(true, 'Downloading real market data…', p); });
+      if (seq !== loadSeq) return;   // a newer load superseded this one
       if (!candles.length) {
         App.toast('No data available for ' + App.currentSymbol + ' on this timeframe', 'warn');
       }
-      ChartMgr.setData(candles, info);
+      ChartMgr.setData(candles, info, { lastBars: 260 });
       ChartMgr.setMarkers([]);
+      renderLegend();
       App.chartRange = { from, to: now };
       Draw.setStoreKey(App.currentSymbol + ':' + App.currentTF);
       $('#bars-info').innerHTML = candles.length
@@ -126,15 +200,17 @@
         : '';
     } catch (e) {
       console.error(e);
-      App.toast('Could not load data: ' + e.message, 'err');
+      if (seq === loadSeq) App.toast('Could not load data: ' + e.message, 'err');
     } finally {
-      setLoading(false);
+      if (seq === loadSeq) setLoading(false);
     }
   }
   App.loadChart = loadChart;
 
   // ------------------------------------------------------------------ timeframe
   $$('.tf-btn').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.tf === App.currentTF && !Replay.isActive()) return;
+    if (!confirmLeaveSession('timeframe')) return;
     $$('.tf-btn').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     App.currentTF = b.dataset.tf;
@@ -212,6 +288,8 @@
     let info = window.findSymbol(sym);
     if (!info && window.Catalog) info = await Catalog.findAndRegister(sym);
     if (!info) { App.toast('Unknown instrument: ' + sym, 'err'); return; }
+    if (info.sym === App.currentSymbol && !Replay.isActive()) { App.closeModals(); return; }
+    if (!confirmLeaveSession('instrument')) return;
     App.currentSymbol = info.sym;
     App.closeModals();
     loadChart();
@@ -539,19 +617,24 @@
   updateLangNote();
 
   // ------------------------------------------------------------------ account settings
-  $('#btn-settings').addEventListener('click', () => openDialog('#dlg-account'));
+  $('#btn-settings').addEventListener('click', () => {
+    syncSettingsDialog();
+    $('#am-live-note').classList.toggle('hidden', !Replay.isActive());
+    openDialog('#dlg-account');
+  });
   $('#am-apply').addEventListener('click', () => {
-    App.manualSettings = {
-      balance: parseFloat($('#am-balance').value) || 100000,
-      leverage: parseInt($('#am-leverage').value) || 100,
-      spread: parseFloat($('#am-spread').value) || 0,
-      commission: parseFloat($('#am-commission').value) || 0,
+    const wasLive = Replay.isActive();
+    App.setManualSettings({
+      balance: parseFloat($('#am-balance').value),
+      leverage: parseInt($('#am-leverage').value),
+      spread: parseFloat($('#am-spread').value),
+      commission: parseFloat($('#am-commission').value),
       propMode: $('#am-prop').value,
-    };
-    App.resetAccountUI();
+    }, { silent: true });
     App.closeModals();
-    if (Replay.isActive()) Replay.exit();
-    App.toast('Account settings applied', 'ok');
+    App.toast(wasLive
+      ? 'Saved — these apply to the next session, the running one keeps its own account'
+      : 'Account settings saved', 'ok');
   });
 
   // ------------------------------------------------------------------ replay / session
@@ -570,8 +653,9 @@
     $('#symbol-btn .sb-src').textContent = info.source === 'binance' ? 'Binance' : 'Dukascopy';
     $('#bt-context').textContent = `Strategy will run on ${info.sym} ${tf.toUpperCase()} (${info.name}).`;
     if (Replay.isActive()) Replay.exit();
-    ChartMgr.setData(candles, info);
+    ChartMgr.setData(candles, info, { fit: false, lastBars: 200 });
     ChartMgr.setMarkers([]);
+    renderLegend();
     App.chartRange = range;
     Draw.setStoreKey(info.sym + ':' + tf);
     $('#bars-info').innerHTML = candles.length
@@ -579,33 +663,108 @@
       : '';
     highlightWatchlist();
   };
-  $('#rp-goto').addEventListener('click', () => openDialog('#dlg-goto'));
+
+  /** Re-render everything that depends on live session state. */
+  App.refreshSessionUI = () => {
+    if (!Replay.isActive()) return;
+    const b = Replay.broker(), bar = Replay.currentBar();
+    if (!b || !bar) return;
+    App.updateAccountUI(b, bar);
+    App.renderPositions(b, bar);
+  };
+
+  $('#rp-goto').addEventListener('click', () => {
+    const m = Replay.sessionMeta && Replay.sessionMeta();
+    if (m && m.startDate) $('#goto-date').value = m.startDate;
+    openDialog('#dlg-goto');
+  });
   $('#rp-fwd').addEventListener('click', () => Replay.stepForward());
   $('#rp-back').addEventListener('click', () => Replay.stepBack());
   $('#rp-play').addEventListener('click', () => Replay.play());
-  $('#rp-exit').addEventListener('click', () => Replay.exit());
-  $('#rp-speed').addEventListener('change', () => {
-    if (Replay.isActive() && Replay.isPlaying()) { Replay.pause(); Replay.play(); }
+  $('#rp-skip').addEventListener('click', () => Replay.skip(10));
+  $('#rp-restart').addEventListener('click', () => Replay.restart());
+  $('#rp-exit').addEventListener('click', () => {
+    if (Replay.broker() && Replay.broker().positions.length) {
+      if (!confirm('You still have open positions. End the session anyway?')) return;
+    }
+    Replay.exit();
+  });
+  $('#rp-speed').addEventListener('change', () => Replay.setSpeed());
+
+  // ---------------------------------------------------------- order ticket
+  const tkSize = $('#tk-size'), tkSL = $('#tk-sl'), tkTP = $('#tk-tp');
+
+  function ticketVals() {
+    const num = (v) => { const n = parseFloat(v); return isFinite(n) && n !== 0 ? n : null; };
+    return { lots: parseFloat(tkSize.value) || 0, sl: num(tkSL.value), tp: num(tkTP.value) };
+  }
+
+  function submitOrder(dir) {
+    if (Replay.manualOrder(dir)) {
+      // clear the brackets so the next order starts clean, like a real ticket
+      tkSL.value = ''; tkTP.value = '';
+      TradeOverlay.clearPreview();
+      App.updateTicketRisk();
+    }
+  }
+
+  $('#tk-buy').addEventListener('click', () => submitOrder(1));
+  $('#tk-sell').addEventListener('click', () => submitOrder(-1));
+  $('#tk-closeall').addEventListener('click', () => Replay.closeAllManual());
+  $('#tk-close').addEventListener('click', () => {
+    $('#ticket').classList.add('hidden');
+    $('#tk-reopen').classList.remove('hidden');
+  });
+  $('#tk-reopen').addEventListener('click', () => {
+    $('#ticket').classList.remove('hidden');
+    $('#tk-reopen').classList.add('hidden');
   });
 
-  // order ticket
-  $('#tk-buy').addEventListener('click', () => Replay.manualOrder(1));
-  $('#tk-sell').addEventListener('click', () => Replay.manualOrder(-1));
-  $('#tk-closeall').addEventListener('click', () => Replay.closeAllManual());
-  $('#tk-close').addEventListener('click', () => $('#ticket').classList.add('hidden'));
-  ['#tk-size', '#tk-sl'].forEach(s => $(s).addEventListener('input', () => App.updateTicketRisk()));
+  // "pick on chart" buttons — click the chart to set SL / TP visually
+  $('#tk-pick-sl').addEventListener('click', () => {
+    if (!Replay.isActive()) { App.toast('Start a session first', 'warn'); return; }
+    TradeOverlay.startPick('sl', (price) => {
+      tkSL.value = price.toFixed(App.currentSymbolInfo.digits);
+      App.updateTicketRisk();
+    });
+  });
+  $('#tk-pick-tp').addEventListener('click', () => {
+    if (!Replay.isActive()) { App.toast('Start a session first', 'warn'); return; }
+    TradeOverlay.startPick('tp', (price) => {
+      tkTP.value = price.toFixed(App.currentSymbolInfo.digits);
+      App.updateTicketRisk();
+    });
+  });
+
+  // risk-percent quick sizing: solve lots from % of balance and stop distance
+  $$('.tk-risk-btn').forEach(btn => btn.addEventListener('click', () => {
+    const pct = parseFloat(btn.dataset.pct);
+    const b = Replay.broker && Replay.broker();
+    const bar = Replay.currentBar && Replay.currentBar();
+    if (!b || !bar) { App.toast('Start a session first', 'warn'); return; }
+    const { sl } = ticketVals();
+    if (sl === null) { App.toast('Set a stop loss first — risk sizing needs a stop distance', 'warn'); return; }
+    const dist = Math.abs(bar.close - sl);
+    if (dist <= 0) { App.toast('Stop loss is at the current price', 'warn'); return; }
+    const lots = (b.balance * pct / 100) / (dist * b.symInfo.lotUnits);
+    tkSize.value = Math.max(0.01, Math.round(lots * 100) / 100);
+    App.updateTicketRisk();
+  }));
+
+  [tkSize, tkSL, tkTP].forEach(el => el.addEventListener('input', () => App.updateTicketRisk()));
 
   App.updateTicketRisk = () => {
     const b = Replay.broker && Replay.broker();
     const bar = Replay.currentBar && Replay.currentBar();
     if (!b || !bar) return;
-    const lots = parseFloat($('#tk-size').value) || 0;
-    const sl = parseFloat($('#tk-sl').value);
+    const { lots, sl, tp } = ticketVals();
     const units = b.symInfo.lotUnits;
-    const margin = b.marginRequired(bar.close, lots);
-    $('#tk-margin').textContent = fmt$(margin);
-    if (isFinite(sl) && sl > 0) {
-      const risk = Math.abs(bar.close - sl) * lots * units;
+    const bid = bar.close, ask = bid + b.spreadPrice;
+
+    $('#tk-margin').textContent = fmt$(b.marginRequired(bid, lots));
+
+    if (sl !== null && lots > 0) {
+      const risk = Math.abs(bid - sl) * lots * units;
       $('#tk-risk-cash').textContent = fmt$(risk);
       const pct = b.balance > 0 ? risk / b.balance * 100 : 0;
       const el = $('#tk-risk-pct');
@@ -616,22 +775,56 @@
       $('#tk-risk-pct').textContent = '—';
       $('#tk-risk-pct').style.color = '';
     }
+
+    if (tp !== null && lots > 0) {
+      const reward = Math.abs(tp - bid) * lots * units;
+      $('#tk-reward-cash').textContent = fmt$(reward);
+      if (sl !== null) {
+        const risk = Math.abs(bid - sl) * lots * units;
+        $('#tk-rr').textContent = risk > 0 ? (reward / risk).toFixed(2) + ' : 1' : '—';
+      } else $('#tk-rr').textContent = '—';
+    } else {
+      $('#tk-reward-cash').textContent = 'no target set';
+      $('#tk-rr').textContent = '—';
+    }
+
+    // live preview on the chart, so you see the zones before you commit
+    if (Replay.isActive() && lots > 0 && (sl !== null || tp !== null)) {
+      // guess direction from where the stop sits relative to price
+      const dir = sl !== null ? (sl < bid ? 1 : -1) : (tp > bid ? 1 : -1);
+      TradeOverlay.setPreview({ dir, lots, entry: dir > 0 ? ask : bid, sl, tp });
+    } else {
+      TradeOverlay.clearPreview();
+    }
   };
 
   // ------------------------------------------------------------------ keyboard
+  // In a session the letters do trading things (B buy / S sell), outside it they
+  // open panels. Shortcuts never fire while a dialog is open or you are typing.
   window.addEventListener('keydown', e => {
-    const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
-    if (typing) return;
+    const tag = document.activeElement ? document.activeElement.tagName : '';
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (App.anyDialogOpen()) return;
+
+    const live = Replay.isActive();
+
+    // session controls first
+    if (live) {
+      if (e.key === 'ArrowRight') { e.preventDefault(); Replay.stepForward(); return; }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); Replay.stepBack(); return; }
+      if (e.key === ' ') { e.preventDefault(); Replay.play(); return; }
+    }
+
     const k = e.key.toLowerCase();
+    if (live && k === 'b') { e.preventDefault(); submitOrder(1); return; }
+    if (live && k === 's') { e.preventDefault(); submitOrder(-1); return; }
+    if (live && k === 'c') { e.preventDefault(); Replay.closeAllManual(); return; }
+
     if (k === 's') { e.preventDefault(); openSymbolPicker(); }
     else if (k === 'i') { e.preventDefault(); openDialog('#dlg-indicators'); renderIndicators(); }
     else if (k === 'b') { e.preventDefault(); openDialog('#dlg-backtest'); }
     else if (k === 'r') { e.preventDefault(); $('#btn-session').click(); }
-    else if (Replay.isActive()) {
-      if (e.key === 'ArrowRight') { e.preventDefault(); Replay.stepForward(); }
-      if (e.key === 'ArrowLeft') { e.preventDefault(); Replay.stepBack(); }
-      if (e.key === ' ') { e.preventDefault(); Replay.play(); }
-    }
   });
 
   // ------------------------------------------------------------------ account UI
@@ -695,8 +888,14 @@
     }
   };
 
-  App.resetAccountUI = () => {
-    const s = App.manualSettings;
+  /**
+   * Reset the account panels to a flat account.
+   * @param {object} [override] use these numbers instead of App.manualSettings
+   *   (Replay.exit passes its own frozen config so the panel matches the
+   *   session that just ended rather than jumping to unrelated values).
+   */
+  App.resetAccountUI = (override) => {
+    const s = override || App.manualSettings;
     $('#chip-balance').textContent = fmt$(s.balance);
     $('#chip-equity').textContent = fmt$(s.balance);
     $('#chip-pnl').textContent = '$0.00';
@@ -712,7 +911,7 @@
     $('#cnt-open').textContent = '0';
     $('#rail-prop-sec').classList.add('hidden');
     $('#open-pos-host').innerHTML = emptyBlock('fa-layer-group', 'No open positions',
-      'Start Bar Replay and use the order ticket, or run a backtest to see filled trades here.');
+      'Start a Backtesting Session and use the order ticket, or run a backtest to see filled trades here.');
     $('#closed-trades-host').innerHTML = emptyBlock('fa-clock-rotate-left', 'No closed trades yet', '');
   };
 
@@ -723,22 +922,46 @@
   }
 
   App.renderPositions = (broker, bar) => {
-    const dg = App.currentSymbolInfo.digits;
+    const info = App.currentSymbolInfo;
+    const dg = info.digits;
+    const pip = info.pip || 0.0001;
+    const units = info.lotUnits || 100000;
     const bid = bar.close;
+    const live = Replay.isActive();
 
     $('#open-pos-host').innerHTML = broker.positions.length ? `
-      <div class="table-wrap"><table class="dt compact">
-        <thead><tr><th>#</th><th>Side</th><th>Lots</th><th>Entry</th><th>Stop</th><th>Target</th><th>Open P/L</th></tr></thead>
+      <div class="table-wrap"><table class="dt compact pos-table">
+        <thead><tr>
+          <th>#</th><th>Side</th><th>Lots</th><th>Entry</th><th>Stop</th><th>Target</th>
+          <th>Pips</th><th>Risk</th><th>Open P/L</th>${live ? '<th></th>' : ''}
+        </tr></thead>
         <tbody>${broker.positions.map(p => {
           const pnl = broker.posPnl(p, bid);
+          const pips = (p.dir > 0 ? (bid - p.entry) : (p.entry - (bid + broker.spreadPrice))) / pip;
+          const risk = p.sl != null ? Math.abs(p.entry - p.sl) * p.lots * units : null;
           return `<tr>
             <td>${p.id}</td>
             <td><span class="badge-side ${p.dir > 0 ? 'long' : 'short'}">${p.dir > 0 ? 'LONG' : 'SHORT'}</span></td>
             <td>${p.lots}</td><td>${p.entry.toFixed(dg)}</td>
-            <td>${p.sl ? p.sl.toFixed(dg) : '—'}</td><td>${p.tp ? p.tp.toFixed(dg) : '—'}</td>
-            <td class="${cls(pnl)}">${fmt$(pnl)}</td></tr>`;
+            <td>${p.sl != null ? p.sl.toFixed(dg) : '—'}</td>
+            <td>${p.tp != null ? p.tp.toFixed(dg) : '—'}</td>
+            <td class="${cls(pips)}">${pips >= 0 ? '+' : ''}${pips.toFixed(1)}</td>
+            <td>${risk != null ? fmt$(risk) : '—'}</td>
+            <td class="${cls(pnl)}">${fmt$(pnl)}</td>
+            ${live ? `<td class="pos-actions">
+              <button class="mini-btn" data-be="${p.id}" data-tip="Move stop to break-even">BE</button>
+              <button class="mini-btn danger" data-close="${p.id}" data-tip="Close this position">Close</button>
+            </td>` : ''}
+          </tr>`;
         }).join('')}</tbody></table></div>`
       : emptyBlock('fa-layer-group', 'No open positions', '');
+
+    if (live) {
+      $$('#open-pos-host [data-close]').forEach(b =>
+        b.addEventListener('click', () => Replay.closeOne(parseInt(b.dataset.close))));
+      $$('#open-pos-host [data-be]').forEach(b =>
+        b.addEventListener('click', () => Replay.breakEven(parseInt(b.dataset.be))));
+    }
 
     $('#closed-trades-host').innerHTML = broker.closed.length ? `
       <div class="table-wrap"><table class="dt compact">
@@ -750,6 +973,22 @@
           <td>${REASON[t.reason] || t.reason}</td>
           <td class="${cls(t.pnl)}">${fmt$(t.pnl)}</td></tr>`).join('')}</tbody></table></div>`
       : emptyBlock('fa-clock-rotate-left', 'No closed trades yet', '');
+
+    // session stats strip
+    const strip = $('#session-stats');
+    if (strip) {
+      if (live && broker.closed.length) {
+        const wins = broker.closed.filter(t => t.pnl > 0).length;
+        const net = broker.closed.reduce((s, t) => s + t.pnl, 0);
+        const wr = (wins / broker.closed.length * 100);
+        strip.classList.remove('hidden');
+        strip.innerHTML = `
+          <span><i>Trades</i><b>${broker.closed.length}</b></span>
+          <span><i>Win rate</i><b>${wr.toFixed(0)}%</b></span>
+          <span><i>Net</i><b class="${cls(net)}">${fmt$(net)}</b></span>
+          <span><i>Open</i><b>${broker.positions.length}</b></span>`;
+      } else strip.classList.add('hidden');
+    }
   };
 
   const REASON = {
@@ -911,15 +1150,16 @@
 
   // ------------------------------------------------------------------ onboarding hints
   const HINTS = [
-    'Press <b>S</b> to search instruments, <b>I</b> for indicators, <b>B</b> for backtest settings.',
+    'Press <b>S</b> to search instruments, <b>I</b> for indicators, <b>B</b> for backtest settings, <b>R</b> for a session.',
     'Scroll to zoom, drag to pan. Double-click the price scale to reset the view.',
-    '<b>Backtesting Session</b> hides the future so you can trade forward by hand — the honest way to test discretion. Press <b>R</b> to open it.',
+    'In a session, drag the <b>SL</b> or <b>TP</b> line straight on the chart to move it — the order updates live.',
+    'In a session: <b>Space</b> plays, <b>→</b> steps one bar, <b>B</b> buys, <b>S</b> sells, <b>C</b> closes everything.',
     'Run the same backtest twice, once with zero spread. The difference is what costs do to your edge.',
-    'Every strategy in the library states its exact rules — open the <b>Strategy Editor</b> tab to read them.',
   ];
   let hintIdx = 0;
   function showHint() {
     if (localStorage.getItem('bt_hints_off') === '1') return;
+    if (Replay.isActive()) return;   // never overlap the session controls
     $('#hint-text').innerHTML = HINTS[hintIdx % HINTS.length];
     $('#chart-hint').classList.remove('hidden');
   }
@@ -931,6 +1171,7 @@
 
   // ------------------------------------------------------------------ boot
   renderWatchlist();
+  syncSettingsDialog();
   App.resetAccountUI();
 
   // apply URL / wizard config
