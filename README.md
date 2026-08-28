@@ -1,55 +1,84 @@
-# BlackTick — Backtesting Terminal
+# BlackTick — TradingView-style Backtesting Terminal
 
-TradingView-style backtesting platform (FXReplay × TradingView), black & white UI with green/red candles, powered by **real market data** — no accounts, no database.
+Un terminal de backtesting în browser care combină **TradingView** (chart, unelte de desen, indicatori) cu **FXReplay** (bar replay + trading manual simulat), pe **date istorice reale**:
 
-## Project Overview
-- **Name**: BlackTick (webapp)
-- **Goal**: Full backtesting terminal: strategy backtesting (bots), manual bar-replay trading, prop-firm simulation — on real historical data.
-- **Data**: Dukascopy (forex, indices, stocks, commodities — decoded from raw `.bi5` LZMA files) and Binance (crypto, klines REST).
+- **Dukascopy** (bi5/LZMA, decodat client-side) — Forex, Indici (US30, NAS100, SPX500, GER40…), Stocks (AAPL, NVDA, TSLA…), Commodities (XAUUSD, USOIL…)
+- **Binance** (klines REST) — Crypto (BTCUSDT, ETHUSDT, SOLUSDT…)
 
-## Currently Completed Features
-- **Chart**: TradingView Lightweight Charts, candlesticks (green/red), volume, black/white theme, OHLC legend, crosshair
-- **Symbols (49)**: Forex majors/crosses (EURUSD…), Indices (US30, NAS100, SPX500, GER40, UK100, JPN225…), Stocks (AAPL, NVDA, TSLA, META…), Commodities (XAUUSD, USOIL…), Crypto (BTCUSDT, ETHUSDT…)
-- **Timeframes**: 1m, 5m, 15m, 30m, 1H, 4H, 1D, 1W (aggregated client-side from M1/H1/D1 sources)
-- **Drawing tools**: trend line, ray, horizontal/vertical line, rectangle, Fibonacci retracement, brush, text, ruler (measure), long/short position tool, magnet snap, delete — persisted per symbol+TF in localStorage
-- **Indicators**: SMA/EMA (20/50/200), Bollinger Bands, VWAP, RSI, MACD, Stochastic, ATR — overlay + sub-pane
-- **Strategy Tester** (bots/strategies):
-  - **JavaScript** — `init()`/`bar()` API with TA library
-  - **Pine Script v5 subset** — real interpreter: `ta.*`, `strategy.entry/exit/close/close_all`, `input.*`, if/else, series history `[n]`, ternary, and/or/not, math.*
-  - **Python** — real Python via Pyodide (numpy included) in browser
-- **Backtest settings**: initial balance, leverage (1:1 → 1:500), start/end date, spread, commission
-- **Prop firm simulation**: FTMO-style Phase 1/2, Funded, or custom (profit target %, daily loss %, max DD %, static/trailing) — applies to bots AND manual replay; live rule tracking, fail/pass detection with timestamps, daily breakdown
-- **Results**: overview + equity curve, full performance table (PF, Sharpe, win rate, max DD, consecutive W/L…), trade list, **monthly PnL breakdown per year**, prop firm report; trades plotted on chart as markers
-- **Bar Replay** (fxreplay-style): pick date, step/play (0.5x–30x), manual BUY/SELL with lots/SL/TP, live equity/margin, position lines on chart, close-all
-- **Broker model**: hedging, bid/ask spread, commission per lot, margin + 50% stop-out, intrabar SL/TP fills (conservative)
+**Fără bază de date, fără conturi** — totul rulează în browser; desenele se salvează în `localStorage`.
 
-## URLs
-- **Dev (sandbox)**: https://3000-idabg0su6pgo22jn0enpi-2b54fc91.sandbox.novita.ai
-- **GitHub**: (pending authorization — see Deployment)
+## Funcționalități
 
-## Data Architecture
-- **Dukascopy**: `/api/duka/*` proxy → raw `.bi5` LZMA files decoded **in browser** (patched LZMA-JS), big-endian 24-byte candle records, calibrated decimal factors (1e5 forex, 1e3 JPY/indices/stocks/commodities)
-- **Binance**: `/api/binance/klines` proxy → `data-api.binance.vision` (works worldwide)
-- **Granularity strategy**: M1 day-files for minute TFs, H1 month-files for hour TFs, D1 year-files for daily+ — with automatic fallback to finer files for the current (incomplete) month/year
-- **Storage**: none (per requirement). Drawings only → localStorage
-- **Backend**: Hono on Cloudflare Pages — pure proxy + static, all compute client-side
+### 📈 Chart (TradingView Lightweight Charts)
+- Candles verde/roșu pe temă neagră/albă, volum, 8 timeframes (1m → 1W)
+- Legend OHLC live la crosshair, watchlist, căutare simboluri pe categorii
+- **Indicatori**: SMA 20/50/200, EMA 20/50, Bollinger, VWAP, RSI, MACD, Stochastic, ATR
 
-## User Guide
-1. Pick a symbol (search or watchlist) and timeframe.
-2. **Backtest a bot**: Strategy Editor tab → choose language (JS / Pine / Python) → pick an example or write your own → Run Backtest → set balance/leverage/dates/prop-firm → Run. Check Overview / Performance / Trades / **Monthly** / Prop Firm tabs.
-3. **Manual replay**: Bar Replay → pick start date → trade with the order panel (BUY/SELL, SL/TP) while stepping/playing bars. Account & prop rules update live (gear icon to configure).
-4. Draw on the chart with the left toolbar (Del removes selected).
+### ✏️ Unelte de desen (canvas overlay ancorat în timp/preț)
+Trend line, Ray, Linie orizontală/verticală, Dreptunghi, **Fib Retracement**, Brush, Text, **Ruler** (măsurare pips/%/bare), **Long/Short Position** (RR vizual), magnet (snap la OHLC), ștergere selecție/tot. Persistență per simbol+TF.
+
+### 🤖 Strategy Tester (boti / strategii / indicatori)
+- **3 limbaje**: **JavaScript**, **Pine Script v5 (subset)** — parser+interpretor propriu (`ta.*`, `strategy.entry/exit/close`, `if/else`, serii `[n]`, `var`, ternar, `input.*`, `math.*`), **Python** real în browser via **Pyodide**
+- Setări: **balanță inițială, leverage (1:1 → 1:500), interval de date (start/end), spread, comision**
+- Rezultate: Overview + **equity curve**, Performance (PF, Sharpe, DD, win rate, consecutive W/L…), **List of Trades**, **Monthly breakdown** (grid an × lună, % și $ pe fiecare lună), **Prop Firm report**
+
+### 🏦 Simulare Prop Firm (backtest + manual)
+- Presets FTMO-style Phase 1 / Phase 2 / Funded + **Custom** (target %, daily loss %, max DD %, static/trailing)
+- Verificare **intrabar worst-case** a daily loss și max drawdown, jurnal zilnic, status PASSED / FAILED (daily / max DD) / ACTIVE
+
+### ⏪ Bar Replay (stil FXReplay)
+- Go to date, step forward/back, play cu viteze 0.5x → 30x
+- **Trading manual**: BUY/SELL cu lots, SL, TP, close all; broker simulat cu leverage, margin, stop-out 50%, spread, comisioane; markere pe chart + linii de poziție; panou cont live (balance/equity/margin/PnL) + regulile prop firm live
+
+## Rulare locală
+
+```bash
+npm install
+npm run build
+npx wrangler pages dev dist --ip 0.0.0.0 --port 3000
+```
+
+## Arhitectură
+
+```
+src/index.tsx            Hono backend (Cloudflare Pages Functions)
+  /api/duka/*            proxy Dukascopy .bi5 (retry + cache)
+  /api/binance/klines    proxy Binance (mirror data-api.binance.vision)
+public/static/js/
+  symbols.js             univers simboluri + factori zecimali Dukascopy
+  data.js                fetch bi5 + LZMA decode + agregare timeframe
+  indicators.js          bibliotecă TA
+  chart.js               Lightweight Charts manager
+  drawings.js            unelte desen pe canvas overlay
+  engine.js              Broker simulat + statistici + reguli prop firm
+  pine.js                interpretor Pine Script v5 (subset)
+  strategy.js            runner JS / Pine / Python (Pyodide) + exemple
+  replay.js              bar replay + trading manual
+  backtest-ui.js         UI rezultate backtest
+  app.js                 bootstrap & wiring
+```
+
+### Detalii date Dukascopy
+- Fișiere `.bi5` = LZMA, 24 bytes/candelă: `time_offset(u32) open close low high (u32) volume(f32)`, big-endian
+- Factori zecimali: forex 1e5 (JPY: 1e3), indici/stocks/commodities 1e3
+- M1: fișier pe zi · H1: fișier pe lună · D1: fișier pe an (luna/anul curent → fallback la granularitate mai fină + agregare)
+- Prețurile sunt BID; ask = bid + spread configurabil
+
+### Model broker
+- Fill la close-ul barei de semnal, spread aplicat pe intrare/ieșire după direcție
+- SL/TP verificate intrabar (SL prioritar — conservator), margin call/stop-out la 50%
+- PnL în USD pe `lotUnits` per instrument (forex 100k/lot, indici 1/lot, stocks 100/lot…)
+
+## Limitări cunoscute
+- Pine Script = subset v5 (fără librării externe, `request.security`, arrays/matrices)
+- Python: prima rulare descarcă Pyodide (~15 MB)
+- Dukascopy publică datele cu ~1-2 zile întârziere; rate-limit la burst-uri (client-ul face retry cu backoff)
+- Sharpe este aproximat din randamente per-bară
+
+## Tech Stack
+Hono + TypeScript (Cloudflare Pages) · TradingView Lightweight Charts · LZMA-JS · Pyodide · vanilla JS frontend
 
 ## Deployment
-- **Platform**: Cloudflare Pages (Hono + Vite)
-- **Status**: ✅ running in sandbox; GitHub push pending authorization
-- **Tech Stack**: Hono + TypeScript + Lightweight Charts + Pyodide + LZMA-JS
-- **Local**: `npm run build && pm2 start ecosystem.config.cjs`
+- **Platform**: Cloudflare Pages (sandbox dev prin `wrangler pages dev`)
+- **Status**: ✅ Functional în sandbox
 - **Last Updated**: 2026-08-28
-
-## Not Yet Implemented / Next Steps
-- More Pine built-ins (security(), arrays, plots rendered on chart)
-- Multi-position sizing UI for strategies (risk % per trade)
-- Tick-level fills (currently M1/bar-level), ask-side candles
-- Export results (CSV), shareable backtest links
-- Drawing tools: ellipse, pitchfork, gann; editing existing drawings by dragging points
