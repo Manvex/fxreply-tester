@@ -66,11 +66,11 @@ const SYMBOLS = [
   { sym: 'HK50', duka: 'HKGIDXHKD', name: 'Hang Seng (Hong Kong)', cat: 'indices', source: 'duka', factor: 1e3, pip: 0.1, lotUnits: 1, digits: 2 },
   { sym: 'SWI20', duka: 'CHEIDXCHF', name: 'SMI 20 (Switzerland)', cat: 'indices', source: 'duka', factor: 1e3, pip: 0.1, lotUnits: 1, digits: 2 },
   // ---------- COMMODITIES ----------
-  { sym: 'XAUUSD', duka: 'XAUUSD', name: 'Gold / U.S. Dollar', cat: 'commodities', source: 'duka', factor: 1e5, pip: 0.01, lotUnits: 100, digits: 2 },
-  { sym: 'XAGUSD', duka: 'XAGUSD', name: 'Silver / U.S. Dollar', cat: 'commodities', source: 'duka', factor: 1e5, pip: 0.001, lotUnits: 5000, digits: 3 },
+  { sym: 'XAUUSD', duka: 'XAUUSD', name: 'Gold / U.S. Dollar', cat: 'commodities', source: 'duka', factor: 1e3, pip: 0.01, lotUnits: 100, digits: 2 },
+  { sym: 'XAGUSD', duka: 'XAGUSD', name: 'Silver / U.S. Dollar', cat: 'commodities', source: 'duka', factor: 1e3, pip: 0.001, lotUnits: 5000, digits: 3 },
   { sym: 'USOIL', duka: 'LIGHTCMDUSD', name: 'WTI Crude Oil', cat: 'commodities', source: 'duka', factor: 1e3, pip: 0.01, lotUnits: 1000, digits: 2 },
   { sym: 'UKOIL', duka: 'BRENTCMDUSD', name: 'Brent Crude Oil', cat: 'commodities', source: 'duka', factor: 1e3, pip: 0.01, lotUnits: 1000, digits: 2 },
-  { sym: 'COPPER', duka: 'COPPERCMDUSD', name: 'Copper', cat: 'commodities', source: 'duka', factor: 1e5, pip: 0.0001, lotUnits: 25000, digits: 4 },
+  { sym: 'COPPER', duka: 'COPPERCMDUSD', name: 'Copper', cat: 'commodities', source: 'duka', factor: 1e4, pip: 0.0001, lotUnits: 25000, digits: 4 },
   // ---------- US STOCKS (CFD, 100 shares = 1 lot) ----------
   { sym: 'AAPL', duka: 'AAPLUSUSD', name: 'Apple Inc.', cat: 'stocks', source: 'duka', factor: 1e3, pip: 0.01, lotUnits: 100, digits: 2 },
   { sym: 'MSFT', duka: 'MSFTUSUSD', name: 'Microsoft Corp.', cat: 'stocks', source: 'duka', factor: 1e3, pip: 0.01, lotUnits: 100, digits: 2 },
@@ -147,5 +147,6 @@ const SYMBOLS = [
 ];
 
 function getSymbol(sym) { return SYMBOLS.find(s => s.sym === sym) || SYMBOLS[0]; }
+function findSymbol(sym) { return SYMBOLS.find(s => s.sym === sym) || null; }
 const SYMBOLS_BY_CAT = SYMBOLS.reduce((a, s) => { (a[s.cat] ||= []).push(s); return a; }, {});
-window.SYMBOLS = SYMBOLS; window.getSymbol = getSymbol; window.SYMBOLS_BY_CAT = SYMBOLS_BY_CAT;
+window.SYMBOLS = SYMBOLS; window.getSymbol = getSymbol; window.findSymbol = findSymbol; window.SYMBOLS_BY_CAT = SYMBOLS_BY_CAT;

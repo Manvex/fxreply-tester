@@ -49,8 +49,8 @@ export const terminalHTML = `<!DOCTYPE html>
       <button id="btn-indicators" class="btn btn-ghost btn-sm" data-tip="Add indicators to the chart">
         <i class="fa-solid fa-wave-square"></i> Indicators
       </button>
-      <button id="btn-replay" class="btn btn-ghost btn-sm" data-tip="Step through history bar by bar and trade manually">
-        <i class="fa-solid fa-clock-rotate-left"></i> Bar Replay
+      <button id="btn-session" class="btn btn-session btn-sm" data-tip="Manual backtesting — pick a market, a start date and a balance, then trade bar by bar">
+        <i class="fa-solid fa-clock-rotate-left"></i> Backtesting Session
       </button>
     </div>
 
@@ -327,23 +327,114 @@ export const terminalHTML = `<!DOCTYPE html>
 <div id="dlg-symbol" class="dialog hidden">
   <div class="dialog-head">
     <div><h3><i class="fa-solid fa-magnifying-glass"></i> Choose an instrument</h3>
-    <p>48 instruments. Forex, indices, stocks and commodities come from Dukascopy tick archives; crypto comes from Binance.</p></div>
+    <p>Type to search the <b>entire Dukascopy universe</b> — about 1,500 instruments: forex, indices, stocks, ETFs, commodities, bonds and crypto — plus Binance spot pairs.</p></div>
     <button class="dialog-close"><i class="fa-solid fa-xmark"></i></button>
   </div>
   <div class="dialog-body">
     <div id="sym-search-wrap">
       <i class="fa-solid fa-magnifying-glass"></i>
-      <input id="symbol-search" type="search" placeholder="Search EURUSD, gold, NASDAQ, Tesla, BTC…" autocomplete="off">
+      <input id="symbol-search" type="search" placeholder="Search anything — EURUSD, gold, Tesla, DAX, Tencent, USDILS, BTC…" autocomplete="off">
     </div>
     <div class="chips" id="symbol-cats">
       <button class="chip active" data-cat="all">All</button>
       <button class="chip" data-cat="forex">Forex</button>
       <button class="chip" data-cat="indices">Indices</button>
       <button class="chip" data-cat="stocks">Stocks</button>
+      <button class="chip" data-cat="etf">ETFs</button>
       <button class="chip" data-cat="commodities">Commodities</button>
       <button class="chip" data-cat="crypto">Crypto</button>
+      <button class="chip" data-cat="bonds">Bonds</button>
     </div>
     <div id="symbol-list"></div>
+  </div>
+</div>
+
+<!-- ============================ BACKTESTING SESSION ============================ -->
+<div id="dlg-session" class="dialog hidden" style="width:560px">
+  <div class="dialog-head">
+    <div><h3><i class="fa-solid fa-clock-rotate-left"></i> New Backtesting Session</h3>
+    <p>Everything in one place — pick a market, a start date and an account, then trade the chart bar by bar. No strategy required.</p></div>
+    <button class="dialog-close"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+  <div class="dialog-body">
+    <div class="field" style="margin-bottom:14px">
+      <label>Market</label>
+      <div id="ss-sym-box">
+        <div id="ss-sym-current">
+          <span class="sr-ico" id="ss-cur-ico">FX</span>
+          <span class="ss-cur-l"><b id="ss-cur-sym">EURUSD</b><small id="ss-cur-name">Euro / U.S. Dollar</small></span>
+          <button class="btn btn-outline btn-sm" id="ss-change" type="button"><i class="fa-solid fa-magnifying-glass"></i> Change</button>
+        </div>
+        <div id="ss-search-wrap" class="hidden">
+          <div id="ss-search-inner">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input id="ss-search" type="search" placeholder="Search ~1,500 markets — EURUSD, gold, Tesla, DAX, BTC…" autocomplete="off">
+          </div>
+          <div id="ss-results"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-grid cols-2">
+      <div class="field">
+        <label>Start date <i class="info-dot" data-tip-wide data-tip="The chart rewinds to this date and hides everything after it. You reveal the future one bar at a time.">?</i></label>
+        <input id="ss-start" type="date">
+      </div>
+      <div class="field">
+        <label>Timeframe</label>
+        <select id="ss-tf">
+          <option value="1m">1 minute</option>
+          <option value="5m">5 minutes</option>
+          <option value="15m" selected>15 minutes</option>
+          <option value="30m">30 minutes</option>
+          <option value="1h">1 hour</option>
+          <option value="4h">4 hours</option>
+          <option value="1d">1 day</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Starting balance ($)</label>
+        <input id="ss-balance" type="number" value="100000" min="100" step="100">
+      </div>
+      <div class="field">
+        <label>Leverage</label>
+        <select id="ss-leverage">
+          <option value="1">1:1</option><option value="10">1:10</option><option value="30">1:30</option>
+          <option value="50">1:50</option><option value="100" selected>1:100</option>
+          <option value="200">1:200</option><option value="500">1:500</option>
+        </select>
+      </div>
+    </div>
+
+    <details id="ss-adv" style="margin-top:12px">
+      <summary>Costs &amp; prop-firm rules <span class="t-faint">(optional)</span></summary>
+      <div class="form-grid cols-2" style="margin-top:10px">
+        <div class="field"><label>Spread (pips / points)</label><input id="ss-spread" type="number" value="0.5" step="0.1" min="0"></div>
+        <div class="field"><label>Commission ($/lot/side)</label><input id="ss-commission" type="number" value="3.5" step="0.5" min="0"></div>
+        <div class="field form-row-full"><label>Prop-firm rule set</label>
+          <select id="ss-prop">
+            <option value="none">Off — plain account</option>
+            <option value="ftmo1">Evaluation Phase 1 — target 10%, daily 5%, max 10%</option>
+            <option value="ftmo2">Evaluation Phase 2 — target 5%, daily 5%, max 10%</option>
+            <option value="funded">Funded account — no target, daily 5%, max 10%</option>
+          </select>
+        </div>
+      </div>
+    </details>
+
+    <div id="ss-note" class="callout" style="margin-top:14px">
+      <i class="fa-solid fa-circle-info"></i>
+      <div id="ss-note-text">The session downloads real historical data from the start date forward. Lower timeframes cover a shorter window per session.</div>
+    </div>
+    <div id="ss-progress" class="hidden" style="margin-top:14px">
+      <div class="progress-label"><span id="ss-progress-text">Downloading market data…</span><b id="ss-progress-pct">0%</b></div>
+      <div class="progress"><div class="progress-fill" id="ss-progress-fill"></div></div>
+    </div>
+  </div>
+  <div class="dialog-foot">
+    <span class="foot-note">Shortcuts once running: <span class="kbd">→</span> next bar · <span class="kbd">←</span> back · <span class="kbd">Space</span> play</span>
+    <button class="btn dialog-close">Cancel</button>
+    <button class="btn btn-primary" id="ss-start-btn"><i class="fa-solid fa-play"></i> Start session</button>
   </div>
 </div>
 
@@ -480,7 +571,7 @@ export const terminalHTML = `<!DOCTYPE html>
 
 <div id="dlg-goto" class="dialog hidden" style="width:440px">
   <div class="dialog-head">
-    <div><h3><i class="fa-solid fa-clock-rotate-left"></i> Start bar replay</h3>
+    <div><h3><i class="fa-solid fa-calendar-day"></i> Jump to date</h3>
     <p>The chart rewinds to this date. Everything after it is hidden until you step forward.</p></div>
     <button class="dialog-close"><i class="fa-solid fa-xmark"></i></button>
   </div>
@@ -493,11 +584,12 @@ export const terminalHTML = `<!DOCTYPE html>
   </div>
   <div class="dialog-foot">
     <button class="btn dialog-close">Cancel</button>
-    <button class="btn btn-primary" id="goto-apply">Start replay</button>
+    <button class="btn btn-primary" id="goto-apply">Jump</button>
   </div>
 </div>
 
 <script src="/static/js/symbols.js"></script>
+<script src="/static/js/catalog.js"></script>
 <script src="/static/js/data.js"></script>
 <script src="/static/js/indicators.js"></script>
 <script src="/static/js/chart.js"></script>
@@ -510,5 +602,6 @@ export const terminalHTML = `<!DOCTYPE html>
 <script src="/static/js/replay.js"></script>
 <script src="/static/js/backtest-ui.js"></script>
 <script src="/static/js/app.js"></script>
+<script src="/static/js/session.js"></script>
 </body>
 </html>`

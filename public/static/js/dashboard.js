@@ -108,6 +108,60 @@
     renderMarkets(c.dataset.cat);
   }));
 
+  // ---- full-catalog search (search-first: results only appear when typing) ----
+  (() => {
+    const input = $('#mk-search');
+    const box = $('#mk-results');
+    if (!input || !box || !window.Catalog) return;
+    let timer = null, seq = 0;
+
+    function resultRow(s, isCatalog) {
+      return `<button class="mkr-row" data-sym="${s.sym}">
+        <span class="mkr-ico">${CAT_LABEL[s.cat] || s.cat}</span>
+        <span class="mkr-l">
+          <b>${s.sym}${s.label && s.label !== s.sym ? ` <small>${s.label}</small>` : ''}</b>
+          <small>${s.name}</small>
+        </span>
+        <span class="mkr-r">
+          ${s.since ? `<span class="pill">since ${s.since}</span>` : ''}
+          <span class="pill">${s.source === 'binance' ? 'Binance' : 'Dukascopy'}</span>
+          <i class="fa-solid fa-arrow-up-right-from-square"></i>
+        </span>
+      </button>`;
+    }
+
+    async function run(q) {
+      const my = ++seq;
+      if (!q.trim()) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+      box.classList.remove('hidden');
+      box.innerHTML = `<div class="mkr-hint"><i class="fa-solid fa-circle-notch fa-spin"></i> Searching the catalog…</div>`;
+      let res;
+      try { res = await Catalog.search(q, 'all', 50); }
+      catch (_) { box.innerHTML = `<div class="mkr-hint">Catalog unavailable right now.</div>`; return; }
+      if (my !== seq) return;
+      const parts = [];
+      if (res.curated.length) parts.push(res.curated.map(s => resultRow(s, false)).join(''));
+      if (res.catalog.length) {
+        parts.push(`<div class="mkr-group">Full Dukascopy catalog</div>`);
+        parts.push(res.catalog.map(s => resultRow(s, true)).join(''));
+      }
+      box.innerHTML = parts.length
+        ? parts.join('')
+        : `<div class="mkr-hint"><i class="fa-solid fa-magnifying-glass"></i> Nothing matches “${q}”. Try a ticker, a company name or a currency pair.</div>`;
+      $$('.mkr-row', box).forEach(r => r.addEventListener('click', async () => {
+        const sym = r.dataset.sym;
+        // register catalog picks so the terminal can load them by symbol
+        if (!window.findSymbol || !window.findSymbol(sym)) await Catalog.findAndRegister(sym);
+        location.href = '/terminal?symbol=' + encodeURIComponent(sym);
+      }));
+    }
+
+    input.addEventListener('input', e => {
+      clearTimeout(timer);
+      timer = setTimeout(() => run(e.target.value), 200);
+    });
+  })();
+
   // ---------------------------------------------------------------- strategy library
   function strategyCard(st, opts = {}) {
     const fam = FAMILY_META[st.family] || { label: st.family, icon: 'fa-code', color: 'var(--t-2)' };
@@ -472,8 +526,8 @@
       const chip = $(`#mk-filters .chip[data-cat="${b.dataset.cov}"]`);
       chip && chip.click();
     }));
-    const tot = $('#stat-syms');
-    if (tot) tot.textContent = SYMBOLS.length;
+    // #stat-syms stays "~1,500" (full Dukascopy catalog) — do not overwrite
+    // with the curated-list length.
   }
   renderCoverage();
 

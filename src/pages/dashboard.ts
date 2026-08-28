@@ -96,7 +96,7 @@ export const dashboardHTML = `<!DOCTYPE html>
               <a class="btn btn-outline btn-lg" href="/terminal"><i class="fa-solid fa-chart-candlestick"></i> Jump into the terminal</a>
             </div>
             <div class="steps">
-              <div class="step"><div class="step-n">1</div><b>Pick a market</b><span>134 instruments across forex, indices, stocks, commodities and crypto.</span></div>
+              <div class="step"><div class="step-n">1</div><b>Pick a market</b><span>Search ~1,500 instruments — the entire Dukascopy universe plus Binance crypto.</span></div>
               <div class="step"><div class="step-n">2</div><b>Pick a strategy</b><span>A documented library, or write your own in JS, Pine or Python.</span></div>
               <div class="step"><div class="step-n">3</div><b>Set the account</b><span>Balance, leverage, spread, commission — and optional prop-firm limits.</span></div>
               <div class="step"><div class="step-n">4</div><b>Read the report</b><span>Equity curve, every trade, monthly returns, drawdown, rule breaches.</span></div>
@@ -110,8 +110,8 @@ export const dashboardHTML = `<!DOCTYPE html>
           <div class="stat-grid">
             <div class="stat accent">
               <div class="stat-label">Instruments</div>
-              <div class="stat-value" id="stat-syms">134</div>
-              <div class="stat-sub">Forex · indices · stocks · commodities · crypto</div>
+              <div class="stat-value" id="stat-syms">~1,500</div>
+              <div class="stat-sub">The full Dukascopy universe — forex · indices · stocks · ETFs · commodities · bonds — plus Binance crypto</div>
             </div>
             <div class="stat">
               <div class="stat-label">History depth</div>
@@ -384,10 +384,15 @@ export const dashboardHTML = `<!DOCTYPE html>
       <div class="page-head">
         <div>
           <h1>Markets</h1>
-          <p>All 134 instruments, the feed each one comes from, and the contract details used to compute profit and margin.</p>
+          <p>The curated list below is ready to trade. On top of it, <b>search the full Dukascopy universe</b> — about 1,500 instruments across forex, indices, stocks, ETFs, commodities and bonds — and open any of them straight in the terminal.</p>
         </div>
       </div>
       <div class="page-body">
+        <div class="mk-search" id="mk-search-wrap">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input id="mk-search" type="search" placeholder="Search ~1,500 markets — try “Tencent”, “Netflix”, “USDILS”, “DAX”, “silver”…" autocomplete="off">
+        </div>
+        <div id="mk-results" class="hidden"></div>
         <div class="chips" id="mk-filters">
           <button class="chip active" data-cat="all">All</button>
           <button class="chip" data-cat="forex">Forex</button>
@@ -483,6 +488,7 @@ export const dashboardHTML = `<!DOCTYPE html>
 <div id="toast-host"></div>
 
 <script src="/static/js/symbols.js"></script>
+<script src="/static/js/catalog.js"></script>
 <script src="/static/js/news.js"></script>
 <script src="/static/js/strategies.js"></script>
 <script src="/static/js/docs-content.js"></script>

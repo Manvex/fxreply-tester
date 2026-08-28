@@ -149,32 +149,70 @@
   }
 
   // ------------------------------------------------------------------ symbol picker
-  const CAT_LABEL = { forex: 'FX', indices: 'IDX', stocks: 'EQ', commodities: 'CMD', crypto: 'CRY' };
-  let symFilter = '', symCat = 'all', symIdx = -1;
+  const CAT_LABEL = { forex: 'FX', indices: 'IDX', stocks: 'EQ', etf: 'ETF', commodities: 'CMD', crypto: 'CRY', bonds: 'BND', funds: 'FND' };
+  let symFilter = '', symCat = 'all', symIdx = -1, symSearchSeq = 0;
 
-  function renderSymbolList() {
-    const f = symFilter.trim().toUpperCase();
-    const items = SYMBOLS.filter(s =>
-      (symCat === 'all' || s.cat === symCat) &&
-      (!f || s.sym.includes(f) || s.name.toUpperCase().includes(f)));
-    $('#symbol-list').innerHTML = items.length ? items.map((s, i) => `
-      <div class="sym-row ${i === symIdx ? 'kb' : ''}" data-sym="${s.sym}">
+  function symRowHTML(s, i, isCatalog) {
+    return `
+      <div class="sym-row ${i === symIdx ? 'kb' : ''}" data-sym="${s.sym}" data-catalog="${isCatalog ? 1 : 0}">
         <span class="sr-ico">${CAT_LABEL[s.cat] || '?'}</span>
         <span class="sr-l">
-          <div class="sr-sym">${s.sym}</div>
+          <div class="sr-sym">${s.sym}${s.label && s.label !== s.sym ? ` <small style="color:var(--t-4);font-weight:400">${s.label}</small>` : ''}</div>
           <div class="sr-name">${s.name}</div>
         </span>
         <span class="sr-r">
+          ${s.since ? `<span class="pill">since ${s.since}</span>` : ''}
           <span class="pill">${s.source === 'binance' ? 'Binance' : 'Dukascopy'}</span>
         </span>
-      </div>`).join('')
-      : `<div class="empty" style="padding:30px"><div class="empty-icon"><i class="fa-solid fa-magnifying-glass"></i></div>
-         <h4>Nothing matches “${symFilter}”</h4><p>Try a shorter search — for example “eur”, “gold”, “nas” or “btc”.</p></div>`;
+      </div>`;
+  }
 
+  function bindSymbolRows() {
     $$('#symbol-list .sym-row').forEach(r => r.addEventListener('click', () => pickSymbol(r.dataset.sym)));
   }
-  function pickSymbol(sym) {
-    App.currentSymbol = sym;
+
+  async function renderSymbolList() {
+    const f = symFilter.trim();
+    const host = $('#symbol-list');
+    const seq = ++symSearchSeq;
+
+    // No query: show the curated list only (search-first for the full catalog)
+    if (!f) {
+      const items = SYMBOLS.filter(s => symCat === 'all' || s.cat === symCat);
+      host.innerHTML = items.map((s, i) => symRowHTML(s, i, false)).join('') +
+        `<div class="ss-hint" style="margin-top:6px"><i class="fa-solid fa-magnifying-glass"></i>
+         Type to search the full Dukascopy catalog — ~1,500 more instruments (stocks, ETFs, exotics, bonds…)</div>`;
+      bindSymbolRows();
+      return;
+    }
+
+    let res;
+    try { res = await Catalog.search(f, symCat, 60); }
+    catch (_) {
+      const F = f.toUpperCase();
+      const items = SYMBOLS.filter(s => (symCat === 'all' || s.cat === symCat) &&
+        (s.sym.includes(F) || s.name.toUpperCase().includes(F)));
+      res = { curated: items, catalog: [] };
+    }
+    if (seq !== symSearchSeq) return; // stale response
+
+    let i = 0;
+    const parts = [];
+    if (res.curated.length) parts.push(res.curated.map(s => symRowHTML(s, i++, false)).join(''));
+    if (res.catalog.length) {
+      parts.push(`<div class="ss-group">Full Dukascopy catalog</div>`);
+      parts.push(res.catalog.map(s => symRowHTML(s, i++, true)).join(''));
+    }
+    host.innerHTML = parts.length ? parts.join('')
+      : `<div class="empty" style="padding:30px"><div class="empty-icon"><i class="fa-solid fa-magnifying-glass"></i></div>
+         <h4>Nothing matches “${symFilter}”</h4><p>Try a ticker (AAPL), a name (gold, Tencent, DAX) or a pair (EURUSD).</p></div>`;
+    bindSymbolRows();
+  }
+  async function pickSymbol(sym) {
+    let info = window.findSymbol(sym);
+    if (!info && window.Catalog) info = await Catalog.findAndRegister(sym);
+    if (!info) { App.toast('Unknown instrument: ' + sym, 'err'); return; }
+    App.currentSymbol = info.sym;
     App.closeModals();
     loadChart();
     highlightWatchlist();
@@ -516,20 +554,31 @@
     App.toast('Account settings applied', 'ok');
   });
 
-  // ------------------------------------------------------------------ replay
-  $('#btn-replay').addEventListener('click', () => {
-    if (Replay.isActive()) { Replay.exit(); return; }
-    openDialog('#dlg-goto');
-    const c = ChartMgr.candles;
-    if (c.length) {
-      const t = c[Math.floor(c.length * 0.35)].time;
-      $('#goto-date').value = new Date(t * 1000).toISOString().slice(0, 10);
-    }
-  });
+  // ------------------------------------------------------------------ replay / session
+  // The "Backtesting Session" popup (session.js) owns session start.
+  // #dlg-goto stays as the in-session "jump to date" tool.
   $('#goto-apply').addEventListener('click', () => {
     App.closeModals();
     Replay.gotoDate($('#goto-date').value);
   });
+
+  // Called by session.js after it has downloaded candles for the chosen market.
+  App.applySessionData = (info, tf, candles, range) => {
+    App.currentSymbol = info.sym;
+    selectTF(tf);
+    $('#symbol-btn .sb-sym').textContent = info.sym;
+    $('#symbol-btn .sb-src').textContent = info.source === 'binance' ? 'Binance' : 'Dukascopy';
+    $('#bt-context').textContent = `Strategy will run on ${info.sym} ${tf.toUpperCase()} (${info.name}).`;
+    if (Replay.isActive()) Replay.exit();
+    ChartMgr.setData(candles, info);
+    ChartMgr.setMarkers([]);
+    App.chartRange = range;
+    Draw.setStoreKey(info.sym + ':' + tf);
+    $('#bars-info').innerHTML = candles.length
+      ? `<i class="fa-solid fa-database" style="font-size:9px"></i> ${candles.length.toLocaleString()} bars`
+      : '';
+    highlightWatchlist();
+  };
   $('#rp-goto').addEventListener('click', () => openDialog('#dlg-goto'));
   $('#rp-fwd').addEventListener('click', () => Replay.stepForward());
   $('#rp-back').addEventListener('click', () => Replay.stepBack());
@@ -577,7 +626,7 @@
     if (k === 's') { e.preventDefault(); openSymbolPicker(); }
     else if (k === 'i') { e.preventDefault(); openDialog('#dlg-indicators'); renderIndicators(); }
     else if (k === 'b') { e.preventDefault(); openDialog('#dlg-backtest'); }
-    else if (k === 'r') { e.preventDefault(); $('#btn-replay').click(); }
+    else if (k === 'r') { e.preventDefault(); $('#btn-session').click(); }
     else if (Replay.isActive()) {
       if (e.key === 'ArrowRight') { e.preventDefault(); Replay.stepForward(); }
       if (e.key === 'ArrowLeft') { e.preventDefault(); Replay.stepBack(); }
@@ -864,7 +913,7 @@
   const HINTS = [
     'Press <b>S</b> to search instruments, <b>I</b> for indicators, <b>B</b> for backtest settings.',
     'Scroll to zoom, drag to pan. Double-click the price scale to reset the view.',
-    '<b>Bar Replay</b> hides the future so you can trade forward by hand — the honest way to test discretion.',
+    '<b>Backtesting Session</b> hides the future so you can trade forward by hand — the honest way to test discretion. Press <b>R</b> to open it.',
     'Run the same backtest twice, once with zero spread. The difference is what costs do to your edge.',
     'Every strategy in the library states its exact rules — open the <b>Strategy Editor</b> tab to read them.',
   ];
@@ -893,7 +942,7 @@
   }
   const urlSym = params.get('symbol');
   if (pending) {
-    if (getSymbol(pending.symbol)) App.currentSymbol = pending.symbol;
+    if (findSymbol(pending.symbol)) App.currentSymbol = pending.symbol;
     selectTF(pending.tf || '1h');
     App.loadStrategyById(pending.strategy);
     $('#bt-start').value = pending.start;
@@ -903,8 +952,8 @@
     $('#bt-spread').value = pending.spread;
     $('#bt-commission').value = pending.commission;
     $('#bt-prop').value = pending.prop;
-  } else if (urlSym && getSymbol(urlSym)) {
-    App.currentSymbol = urlSym;
+  } else if (urlSym) {
+    if (findSymbol(urlSym)) App.currentSymbol = urlSym;
   }
 
   loadChart().then(() => {

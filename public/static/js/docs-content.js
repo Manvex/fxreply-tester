@@ -349,10 +349,12 @@ def bar(i, candles, ctx):
 <p><code>candles</code> is a list of dicts with keys <code>time, open, high, low, close, volume</code>.
 Python is the slowest of the three languages — expect roughly a second per 10,000 bars.</p>
 
-<h2 id="m-replay">Bar replay — manual trading</h2>
-<p>Automated tests cannot evaluate discretionary rules. Bar replay can.</p>
+<h2 id="m-replay">Backtesting Session — manual trading</h2>
+<p>Automated tests cannot evaluate discretionary rules. A manual backtesting session can.</p>
 <ol>
-  <li>In the terminal press <b>Bar Replay</b> and choose a start date.</li>
+  <li>In the terminal press <b>Backtesting Session</b>. One popup holds everything:
+  the market (searchable across the whole Dukascopy catalog), timeframe, start date,
+  balance, leverage and optional costs / prop-firm rules.</li>
   <li>The chart truncates there. Everything after is hidden.</li>
   <li>Step forward with <span class="kbd">&rarr;</span>, back with <span class="kbd">&larr;</span>,
   or play continuously with <span class="kbd">Space</span>.</li>
@@ -370,7 +372,7 @@ rewind together.</p>
   <tbody>
     <tr><td><span class="kbd">S</span></td><td>Open instrument search</td></tr>
     <tr><td><span class="kbd">I</span></td><td>Open indicators</td></tr>
-    <tr><td><span class="kbd">R</span></td><td>Toggle bar replay</td></tr>
+    <tr><td><span class="kbd">R</span></td><td>Open / exit the backtesting session</td></tr>
     <tr><td><span class="kbd">B</span></td><td>Open backtest settings</td></tr>
     <tr><td><span class="kbd">&rarr;</span> / <span class="kbd">&larr;</span></td><td>Step replay forward / back</td></tr>
     <tr><td><span class="kbd">Space</span></td><td>Play / pause replay</td></tr>
