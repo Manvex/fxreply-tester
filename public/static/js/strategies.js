@@ -819,6 +819,176 @@ def bar(i, candles, ctx):
     elif price < ma[i] and ctx.position() > 0:
         ctx.close_all()`,
   },
+
+  // =========================================================================
+  // 14. News blackout trend filter — JS
+  // =========================================================================
+  {
+    id: 'news-blackout-trend',
+    name: 'News Blackout Trend',
+    lang: 'js',
+    family: 'news',
+    summary: 'A plain EMA pullback system that simply refuses to be in the market around high-impact releases. Entries are blocked inside the blackout window and open trades are flattened before the release lands.',
+    rules: {
+      entryLong: 'Close > EMA(50) and the previous bar dipped below EMA(20), with no high-impact release inside the blackout window',
+      entryShort: 'Close < EMA(50) and the previous bar poked above EMA(20), with no high-impact release inside the blackout window',
+      exit: 'Stop = 2 x ATR(14), target = 3 x ATR(14). Any open position is closed as soon as a high-impact release comes within BEFORE_MINS.',
+      sizing: 'Risk-based — each trade risks RISK_PCT of balance over the stop distance.',
+    },
+    markets: ['Forex', 'Indices'],
+    tf: ['15m', '30m', '1h'],
+    code: `// ===== News Blackout Trend =====
+// Demonstrates ctx.news — the real ForexFactory economic calendar.
+//
+// The trading logic is deliberately simple; the point is the news filter.
+// Run it twice, once with BEFORE_MINS = 0, to see how much of the equity
+// curve is really just event risk.
+//
+const FAST = 20;
+const SLOW = 50;
+const ATR_STOP = 2.0;
+const ATR_TARGET = 3.0;
+const RISK_PCT = 1.0;
+const BEFORE_MINS = 45;   // no new trades this close to a release
+const AFTER_MINS  = 30;   // no new trades this soon after one
+
+let fast, slow;
+
+function init(candles, ctx) {
+  const closes = candles.map(c => c.close);
+  fast = ctx.ta.ema(closes, FAST);
+  slow = ctx.ta.ema(closes, SLOW);
+}
+
+function bar(i, candles, ctx) {
+  if (i < SLOW + 2) return;
+  const c = candles[i];
+  const atr = ctx.atr14[i];
+  if (!isFinite(atr) || atr <= 0) return;
+
+  // ---- News gate -------------------------------------------------------
+  // Both helpers return Infinity when nothing matches, so a calendar that
+  // failed to load degrades gracefully into "trade normally".
+  const toNext    = ctx.news.minsToNext(['high']);
+  const sinceLast = ctx.news.minsSinceLast(['high']);
+
+  // Flatten before the release rather than riding the spike through it.
+  if (toNext <= BEFORE_MINS) {
+    if (ctx.position() !== 0) ctx.closeAll();
+    return;
+  }
+  if (sinceLast <= AFTER_MINS) return;   // let the dust settle
+
+  const upTrend   = c.close > slow[i];
+  const downTrend = c.close < slow[i];
+  const dipped = candles[i - 1].low  < fast[i - 1] && c.close > fast[i];
+  const poked  = candles[i - 1].high > fast[i - 1] && c.close < fast[i];
+
+  const dist = ATR_STOP * atr;
+  const lots = ctx.riskLots(RISK_PCT, dist);
+  if (lots <= 0) return;
+
+  if (upTrend && dipped && ctx.position() <= 0) {
+    ctx.closeAll();
+    ctx.buy(lots, c.close - dist, c.close + ATR_TARGET * atr);
+  } else if (downTrend && poked && ctx.position() >= 0) {
+    ctx.closeAll();
+    ctx.sell(lots, c.close + dist, c.close - ATR_TARGET * atr);
+  }
+}`,
+  },
+
+  // =========================================================================
+  // 15. Post-release momentum — Python
+  // =========================================================================
+  {
+    id: 'news-momentum-py',
+    name: 'Post-Release Momentum',
+    lang: 'python',
+    family: 'news',
+    summary: 'Does the opposite of the blackout system: it only trades in the minutes right after a high-impact release, following the direction of the bar that reacted to it.',
+    rules: {
+      entryLong: 'A high-impact release happened within WINDOW_MINS and the reaction bar closed in the upper third of its range',
+      entryShort: 'A high-impact release happened within WINDOW_MINS and the reaction bar closed in the lower third of its range',
+      exit: 'Stop = 1.5 x ATR(14), target = 2.5 x ATR(14). Everything is flattened once the window closes.',
+      sizing: 'Risk-based — RISK_PCT of balance over the stop distance.',
+    },
+    markets: ['Forex', 'Indices'],
+    tf: ['5m', '15m'],
+    code: `# ===== Post-Release Momentum =====
+# Trades only inside the reaction window after a high-impact release, using
+# the real ForexFactory calendar through the ctx.news_* helpers.
+#
+# This is event-risk trading. On a live feed the spread widens far more than
+# the fixed spread this backtester assumes, so treat any profit here as an
+# optimistic upper bound, not a tradable edge.
+import numpy as np
+
+WINDOW_MINS = 20     # only trade this soon after a release
+ATR_LEN     = 14
+ATR_STOP    = 1.5
+ATR_TARGET  = 2.5
+RISK_PCT    = 0.5    # smaller than usual — event risk is not kind
+
+atr = None
+
+def _rma(x, n):
+    out = np.full(len(x), np.nan)
+    prev = np.nan
+    for i in range(len(x)):
+        if np.isnan(prev):
+            if i >= n - 1:
+                w = x[i - n + 1:i + 1]
+                if not np.isnan(w).any():
+                    prev = w.mean()
+                    out[i] = prev
+        else:
+            prev = (x[i] + (n - 1) * prev) / n
+            out[i] = prev
+    return out
+
+def init(candles, ctx):
+    global atr
+    highs  = np.array([c['high'] for c in candles])
+    lows   = np.array([c['low'] for c in candles])
+    closes = np.array([c['close'] for c in candles])
+    prev_c = np.roll(closes, 1); prev_c[0] = closes[0]
+    tr = np.maximum(highs - lows,
+         np.maximum(np.abs(highs - prev_c), np.abs(lows - prev_c)))
+    atr = _rma(tr, ATR_LEN)
+
+def bar(i, candles, ctx):
+    if i < ATR_LEN + 2:
+        return
+    a = atr[i]
+    if not np.isfinite(a) or a <= 0:
+        return
+
+    c = candles[i]
+
+    # How long since the last high-impact release? inf means "none found".
+    since = ctx.news_mins_since_last(['high'])
+    if since > WINDOW_MINS:
+        return                      # outside the reaction window
+    if ctx.position() != 0:
+        return                      # already positioned, let SL/TP work
+
+    rng = c['high'] - c['low']
+    if rng <= 0:
+        return
+    where = (c['close'] - c['low']) / rng   # 1 = closed on the high
+
+    dist = ATR_STOP * a
+    lots = ctx.risk_lots(RISK_PCT, dist)
+    if lots <= 0:
+        return
+
+    if where > 0.66:
+        ctx.buy(lots, c['close'] - dist, c['close'] + ATR_TARGET * a)
+    elif where < 0.34:
+        ctx.sell(lots, c['close'] + dist, c['close'] - ATR_TARGET * a)
+`,
+  },
 ];
 
 const FAMILY_META = {
@@ -827,6 +997,7 @@ const FAMILY_META = {
   'breakout':       { label: 'Breakout',        icon: 'fa-bolt', color: 'warn' },
   'momentum':       { label: 'Momentum',        icon: 'fa-gauge-high', color: 'up' },
   'pattern':        { label: 'Session / Pattern', icon: 'fa-clock', color: 'info' },
+  'news':           { label: 'News Aware',      icon: 'fa-bullhorn', color: 'warn' },
   'template':       { label: 'Template',        icon: 'fa-file-code', color: 'dim' },
 };
 

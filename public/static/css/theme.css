@@ -162,6 +162,30 @@ select {
 input[type=date] { cursor: pointer; }
 input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.65); cursor: pointer; }
 
+/* Dropdown items are rendered by the OS, not the page — they must be styled
+   explicitly or they inherit dark text onto a light native menu (or vice versa),
+   which is the classic "black text on black" dropdown. */
+select option, select optgroup {
+  background: #12161b; color: #e6edf3;
+}
+select optgroup { font-weight: 650; color: #8b949e; }
+select option:checked, select option:hover { background: #1f6f63; color: #ffffff; }
+
+/* Colour-scheme hint so native widgets (scrollbars, pickers, autofill) go dark */
+:root { color-scheme: dark; }
+
+/* Safety net: never let a transparent/inherited background collapse text onto
+   the same colour. Autofill in Chrome is the usual offender. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--t-1);
+  -webkit-box-shadow: 0 0 0 1000px var(--s-1) inset;
+  caret-color: var(--t-1);
+}
+
 /* Segmented control */
 .seg { display: inline-flex; background: var(--s-1); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 2px; gap: 2px; }
 .seg button {

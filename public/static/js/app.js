@@ -329,6 +329,15 @@
         ['ta.crossunder(a, b, i)', 'a crossed below b'],
         ['ctx.atr14[i]', 'Pre-computed ATR(14)'],
       ]],
+      ['Economic calendar (ctx.news)', [
+        ['ctx.news.minsToNext([imp], [cur])', 'Minutes to the next release (Infinity if none)'],
+        ['ctx.news.minsSinceLast([imp], [cur])', 'Minutes since the last release'],
+        ['ctx.news.isNear(mins, [imp], [cur])', 'True inside +/- mins of a release'],
+        ['ctx.news.next([imp], [cur])', 'The next event object, or null'],
+        ['ctx.news.last([imp], [cur])', 'The last released event, or null'],
+        ['ctx.news.today([imp], [cur])', "Events on this bar's calendar day"],
+        ['ctx.news.count()', 'Events loaded for this backtest'],
+      ]],
     ],
     pine: [
       ['Series', [
@@ -355,6 +364,12 @@
         ['strategy.position_size', 'Net position'],
         ['strategy.long / short', 'Direction constants'],
       ]],
+      ['news.* (BlackTick extension)', [
+        ['news.mins_to_next("high")', 'Minutes to the next release'],
+        ['news.mins_since_last("high")', 'Minutes since the last release'],
+        ['news.is_near(30, "high")', 'True inside the window'],
+        ['news.count()', 'Events loaded'],
+      ]],
       ['Not supported', [
         ['request.security()', 'No multi-timeframe'],
         ['functions, arrays, maps', 'Not implemented'],
@@ -380,6 +395,12 @@
         ['import numpy as np', 'numpy is available'],
         ['def init(candles, ctx)', 'Optional pre-compute hook'],
         ['def bar(i, candles, ctx)', 'Required per-bar hook'],
+      ]],
+      ['Economic calendar', [
+        ['ctx.news_mins_to_next(["high"])', 'Minutes to the next release'],
+        ['ctx.news_mins_since_last(["high"])', 'Minutes since the last release'],
+        ['ctx.news_is_near(30, ["high"])', 'True inside the window'],
+        ['ctx.news_count()', 'Events loaded'],
       ]],
     ],
   };
@@ -688,6 +709,156 @@
     prop_fail: 'Rule breach', end: 'End of test',
   };
   App.REASON = REASON;
+
+
+  // ------------------------------------------------------------------ news panel
+  // Real economic-calendar releases. Two scopes: the events inside the last
+  // backtest window, or what is coming up from today.
+  let newsEvents = [];      // events for the current backtest range
+  let newsUpcoming = [];    // events ahead of now
+  let newsTf = '1h';
+  let newsScope = 'range';
+  let newsImp = 'high';
+
+  const IMP_META = {
+    high:    { label: 'High',    cls: 'imp-high',    ico: 'fa-fire' },
+    medium:  { label: 'Medium',  cls: 'imp-medium',  ico: 'fa-bolt' },
+    low:     { label: 'Low',     cls: 'imp-low',     ico: 'fa-circle' },
+    holiday: { label: 'Holiday', cls: 'imp-holiday', ico: 'fa-umbrella-beach' },
+  };
+
+  function impactsWanted() {
+    if (newsImp === 'high') return ['high'];
+    if (newsImp === 'medium') return ['high', 'medium'];
+    return ['high', 'medium', 'low', 'holiday'];
+  }
+
+  function newsCurrencies() {
+    if (!$('#news-only-sym') || !$('#news-only-sym').checked) return null;
+    return NewsStore.currenciesFor(App.currentSymbolInfo);
+  }
+
+  App.setNewsEvents = (events, tf) => {
+    newsEvents = events || [];
+    newsTf = tf || App.currentTF;
+    newsScope = 'range';
+    syncSeg('#news-scope', 'scope', 'range');
+    renderNews();
+    pushNewsToChart();
+  };
+
+  function syncSeg(sel, attr, val) {
+    const host = $(sel); if (!host) return;
+    host.querySelectorAll('button').forEach(b =>
+      b.classList.toggle('active', b.dataset[attr] === val));
+  }
+
+  function pushNewsToChart() {
+    if (!ChartMgr.setNewsMarkers) return;
+    const on = !$('#news-show-chart') || $('#news-show-chart').checked;
+    if (!on) { ChartMgr.clearNewsMarkers(); return; }
+    const src = newsScope === 'range' ? newsEvents : newsUpcoming;
+    const shown = NewsStore.filter(src, { impacts: impactsWanted(), currencies: newsCurrencies() });
+    const tfSec = DataStore.TF_SEC[newsTf] || 3600;
+    ChartMgr.setNewsMarkers(NewsStore.toMarkers(shown, ChartMgr.candles, tfSec));
+  }
+
+  function newsRow(e, isPast) {
+    const m = IMP_META[e.impact] || IMP_META.low;
+    const d = new Date(e.t * 1000);
+    const when = d.toISOString().replace('T', ' ').slice(0, 16);
+    const vals = [];
+    if (e.actual) vals.push(`<span class="nv"><i>Actual</i><b class="${e.tone === 'better' ? 't-up' : e.tone === 'worse' ? 't-down' : ''}">${e.actual}</b></span>`);
+    if (e.forecast) vals.push(`<span class="nv"><i>Forecast</i><b>${e.forecast}</b></span>`);
+    if (e.previous) vals.push(`<span class="nv"><i>Previous</i><b>${e.previous}</b></span>`);
+    let rel = '';
+    if (!isPast) {
+      const mins = (e.t - Date.now() / 1000) / 60;
+      rel = mins < 60 ? `in ${Math.max(0, Math.round(mins))}m`
+          : mins < 1440 ? `in ${(mins / 60).toFixed(0)}h`
+          : `in ${(mins / 1440).toFixed(0)}d`;
+    }
+    return `<div class="news-row ${m.cls}">
+      <div class="nr-imp" title="${m.label} impact"><i class="fa-solid ${m.ico}"></i></div>
+      <div class="nr-when"><b>${when}</b><span>UTC${rel ? ' · ' + rel : ''}</span></div>
+      <div class="nr-cur">${e.cur}</div>
+      <div class="nr-title">${e.title}</div>
+      <div class="nr-vals">${vals.join('') || '<span class="nv-none">no figures</span>'}</div>
+    </div>`;
+  }
+
+  async function renderNews() {
+    const host = $('#news-host');
+    if (!host) return;
+    const cnt = $('#cnt-news');
+
+    if (newsScope === 'upcoming') {
+      host.innerHTML = '<div class="news-loading"><i class="fa-solid fa-spinner spin"></i> Loading upcoming releases…</div>';
+      try {
+        if (!newsUpcoming.length) newsUpcoming = await NewsStore.upcoming(21);
+      } catch (_) {
+        host.innerHTML = `<div class="empty"><div class="empty-icon"><i class="fa-solid fa-plug-circle-xmark"></i></div>
+          <h3>Calendar unavailable</h3><p>The economic calendar could not be reached. Try again shortly.</p></div>`;
+        return;
+      }
+      const shown = NewsStore.filter(newsUpcoming, { impacts: impactsWanted(), currencies: newsCurrencies() });
+      if (cnt) cnt.textContent = shown.length;
+      host.innerHTML = shown.length
+        ? `<div class="news-head"><b>${shown.length}</b> upcoming release${shown.length === 1 ? '' : 's'} · next 3 weeks</div>` +
+          shown.map(e => newsRow(e, false)).join('')
+        : `<div class="empty"><div class="empty-icon"><i class="fa-solid fa-calendar-check"></i></div>
+           <h3>Nothing scheduled</h3><p>No releases match this filter in the next three weeks.
+           Widen the impact filter or untick the currency filter.</p></div>`;
+      pushNewsToChart();
+      return;
+    }
+
+    // range scope
+    if (!newsEvents.length) {
+      if (cnt) cnt.textContent = '0';
+      host.innerHTML = `<div class="empty"><div class="empty-icon"><i class="fa-solid fa-bullhorn"></i></div>
+        <h3>No calendar loaded yet</h3>
+        <p>Run a backtest with <b>Load the real economic calendar</b> enabled, and every release
+        inside the tested window shows up here and on the chart — with the figure that was actually
+        published at the time.</p>
+        <button class="btn btn-primary btn-sm" id="news-run"><i class="fa-solid fa-play"></i> Open Backtest Settings</button></div>`;
+      const b = $('#news-run');
+      if (b) b.addEventListener('click', () => $('#btn-tester').click());
+      pushNewsToChart();
+      return;
+    }
+    const shown = NewsStore.filter(newsEvents, { impacts: impactsWanted(), currencies: newsCurrencies() });
+    if (cnt) cnt.textContent = shown.length;
+    const nowSec = Date.now() / 1000;
+    host.innerHTML =
+      `<div class="news-head"><b>${shown.length}</b> release${shown.length === 1 ? '' : 's'} inside the backtest window
+       <span style="color:var(--t-3)">· figures shown are the ones published at the time</span></div>` +
+      (shown.length ? shown.map(e => newsRow(e, e.t < nowSec)).join('')
+        : `<div class="empty"><div class="empty-icon"><i class="fa-solid fa-filter"></i></div>
+           <h3>Nothing matches the filter</h3><p>Loosen the impact filter or untick the currency filter.</p></div>`);
+    pushNewsToChart();
+  }
+
+  // news panel controls
+  const nScope = $('#news-scope');
+  if (nScope) nScope.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    newsScope = b.dataset.scope;
+    syncSeg('#news-scope', 'scope', newsScope);
+    renderNews();
+  });
+  const nImp = $('#news-imp');
+  if (nImp) nImp.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    newsImp = b.dataset.imp;
+    syncSeg('#news-imp', 'imp', newsImp);
+    renderNews();
+  });
+  ['#news-only-sym', '#news-show-chart'].forEach(sel => {
+    const el = $(sel);
+    if (el) el.addEventListener('change', renderNews);
+  });
+  App.renderNews = renderNews;
 
   // ------------------------------------------------------------------ onboarding hints
   const HINTS = [

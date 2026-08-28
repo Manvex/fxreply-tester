@@ -83,7 +83,7 @@ public/static/
   css/theme.css          Design tokens + shared components
   css/dashboard.css      Dashboard layout
   css/terminal.css       Chart workspace layout
-  js/symbols.js          48 instruments with contract specs
+  js/symbols.js          134 instruments with contract specs
   js/data.js             Feed loading, .bi5 decoding, timeframe aggregation
   js/indicators.js       TA library + indicator definitions
   js/chart.js            Chart manager
@@ -120,3 +120,54 @@ curl http://localhost:3000/api/health
 - **Platform**: Cloudflare Pages
 - **Status**: ❌ Not yet deployed (runs locally in the sandbox)
 - **Last Updated**: 2026-08-28
+
+## Economic Calendar (news)
+
+Real releases from the ForexFactory calendar, proxied by the Worker so the
+browser never talks to the upstream site directly.
+
+- **Route**: `GET /api/news` — current week; `GET /api/news?month=may.2024` — a
+  full historical month. Response: `{ ok, count, events[] }` where each event is
+  `{ t, cur, title, impact, actual, forecast, previous, tone }`.
+- **Cached** at the Cloudflare edge for 6 hours, and in-memory per month on the
+  client (`NewsStore`), including negative caching for months that fail.
+- **On the chart**: news markers are a second marker layer merged with the trade
+  arrows, coloured by impact (red = high, amber = medium) and snapped onto the
+  bar containing the release. Toggle with *Plot economic calendar* in the
+  backtest dialog, or from the **News** tab in the terminal dock.
+- **On the dashboard**: an Economic Calendar section shows upcoming and already
+  released high/medium impact events.
+- **In strategies**:
+  - JavaScript — `ctx.news.minsToNext(['high'])`, `minsSinceLast`, `isNear(mins, …)`,
+    `next`, `last`, `today`, `count`
+  - Python — `ctx.news_mins_to_next(['high'])`, `news_mins_since_last`,
+    `news_is_near`, `news_count`
+  - Pine — `news.mins_to_next("high")`, `news.mins_since_last`, `news.is_near`,
+    `news.count`
+  All of them return `Infinity` when nothing matches, so a strategy still runs
+  normally if the calendar is unreachable.
+
+Worked examples in the library: **News Blackout Trend** (JS) and
+**Post-Release Momentum** (Python).
+
+## Mobile
+
+`public/static/css/mobile.css` is loaded last on both pages and carries the
+responsive layer:
+
+- **≤ 1100px** — right rail hidden, grids collapse to two columns
+- **≤ 780px** — the sidebar becomes an off-canvas drawer behind `#nav-toggle`
+  with a scrim; the terminal topbar wraps, the tools become a scrolling strip,
+  the order ticket becomes a bottom sheet, dialogs become bottom sheets, and
+  wide tables scroll horizontally instead of squashing
+- **≤ 420px** and `prefers-reduced-motion` refinements
+
+Tap targets are 40–42px and inputs are 15px so iOS does not zoom on focus.
+
+## No demo data, no accounts
+
+- Every candle comes from Dukascopy or Binance; every calendar event from
+  ForexFactory. Nothing is generated, interpolated or mocked — if the market was
+  closed there is simply no bar.
+- There is no login, signup or account system. All state (drawings, saved
+  strategies, wizard hand-off) lives in the browser's `localStorage`.

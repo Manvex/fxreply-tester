@@ -123,9 +123,21 @@ const ChartMgr = (() => {
   }
 
   // -------- trade markers (backtest / manual trades) --------
-  function setMarkers(markers) {
-    candleSeries.setMarkers(markers);
+  // Two independent marker layers — trades and news events — merged on every
+  // update so turning news on/off never wipes the trade arrows (and vice versa).
+  let tradeMarkers = [];
+  let newsMarkers = [];
+
+  function applyMarkers() {
+    const all = tradeMarkers.concat(newsMarkers);
+    all.sort((a, b) => a.time - b.time);
+    candleSeries.setMarkers(all);
   }
+  function setMarkers(m) { tradeMarkers = m || []; applyMarkers(); }
+  function setTradeMarkers(m) { tradeMarkers = m || []; applyMarkers(); }
+  function setNewsMarkers(m) { newsMarkers = m || []; applyMarkers(); }
+  function clearNewsMarkers() { newsMarkers = []; applyMarkers(); }
+  function getNewsMarkers() { return newsMarkers; }
 
   function clearPriceLines() {
     priceLines.forEach(pl => { try { candleSeries.removePriceLine(pl); } catch (e) {} });
@@ -140,7 +152,8 @@ const ChartMgr = (() => {
 
   return {
     init, setData, updateBar, toggleIndicator, removeIndicator, refreshIndicators,
-    setMarkers, clearPriceLines, addPriceLine,
+    setMarkers, setTradeMarkers, setNewsMarkers, clearNewsMarkers, getNewsMarkers,
+    clearPriceLines, addPriceLine,
     get chart() { return chart; },
     get series() { return candleSeries; },
     get candles() { return candles; },

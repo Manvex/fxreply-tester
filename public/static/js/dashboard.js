@@ -18,6 +18,10 @@
     commodities: 'Commodity', crypto: 'Crypto',
   };
 
+  // Escape anything that comes from an upstream feed before it touches innerHTML.
+  const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ESC_MAP[c]);
+
   // ---------------------------------------------------------------- toast
   function toast(msg, kind = 'info') {
     const host = $('#toast-host');
@@ -33,14 +37,33 @@
   }
 
   // ---------------------------------------------------------------- routing
+  function closeDrawer() {
+    $('#sidenav') && $('#sidenav').classList.remove('open');
+    $('#nav-scrim') && $('#nav-scrim').classList.remove('open');
+    document.body.classList.remove('nav-open');
+  }
+  function openDrawer() {
+    $('#sidenav') && $('#sidenav').classList.add('open');
+    $('#nav-scrim') && $('#nav-scrim').classList.add('open');
+    document.body.classList.add('nav-open');
+  }
+
   function show(page) {
     $$('.page').forEach(p => p.classList.toggle('active', p.dataset.page === page));
     $$('.nav-item[data-nav]').forEach(n => n.classList.toggle('active', n.dataset.nav === page));
+    closeDrawer();
     window.scrollTo({ top: 0, behavior: 'instant' });
     if (location.hash.slice(1) !== page) history.replaceState(null, '', '#' + page);
   }
   $$('.nav-item[data-nav]').forEach(n => n.addEventListener('click', () => show(n.dataset.nav)));
   $$('[data-goto]').forEach(b => b.addEventListener('click', () => show(b.dataset.goto)));
+
+  // ---------------------------------------------------------- mobile drawer
+  $('#nav-toggle') && $('#nav-toggle').addEventListener('click', () => {
+    $('#sidenav').classList.contains('open') ? closeDrawer() : openDrawer();
+  });
+  $('#nav-scrim') && $('#nav-scrim').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
 
   // ---------------------------------------------------------------- markets
   function marketCard(s) {
@@ -341,6 +364,179 @@
   }
   $('#ds-test').addEventListener('click', () => checkFeeds(true));
   checkFeeds(false);
+
+  // ============================================================ launcher
+  // Type any part of a symbol or its name and jump straight to the chart.
+  const LC_MAX = 8;
+  let lcSel = -1, lcHits = [];
+
+  function lcSearch(q) {
+    q = q.trim().toUpperCase();
+    if (!q) return [];
+    const exact = [], starts = [], contains = [];
+    for (const s of SYMBOLS) {
+      const sym = s.sym.toUpperCase();
+      const name = (s.name || '').toUpperCase();
+      if (sym === q) exact.push(s);
+      else if (sym.startsWith(q)) starts.push(s);
+      else if (sym.includes(q) || name.includes(q)) contains.push(s);
+    }
+    return exact.concat(starts, contains).slice(0, LC_MAX);
+  }
+
+  function lcRender() {
+    const box = $('#lc-results');
+    if (!box) return;
+    if (!lcHits.length) {
+      const q = $('#lc-input').value.trim();
+      if (!q) { box.classList.remove('open'); box.innerHTML = ''; return; }
+      box.classList.add('open');
+      box.innerHTML = '<div class="lc-empty">No instrument matches “' + esc(q) + '”.</div>';
+      return;
+    }
+    box.classList.add('open');
+    box.innerHTML = lcHits.map((s, i) => `
+      <button class="lc-row${i === lcSel ? ' sel' : ''}" data-lc="${s.sym}">
+        <i class="fa-solid ${CAT_ICON[s.cat] || 'fa-chart-line'}" style="color:var(--brand);width:15px"></i>
+        <b>${s.sym}</b>
+        <span>${esc(s.name || '')}</span>
+        <span class="pill">${CAT_LABEL[s.cat] || s.cat}</span>
+      </button>`).join('');
+    $$('#lc-results .lc-row').forEach(r =>
+      r.addEventListener('click', () => lcOpen(r.dataset.lc)));
+  }
+
+  function lcOpen(sym) {
+    if (!sym) return;
+    location.href = '/terminal?symbol=' + encodeURIComponent(sym);
+  }
+
+  const lcInput = $('#lc-input');
+  if (lcInput) {
+    lcInput.addEventListener('input', () => {
+      lcHits = lcSearch(lcInput.value);
+      lcSel = lcHits.length ? 0 : -1;
+      lcRender();
+    });
+    lcInput.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); lcSel = Math.min(lcSel + 1, lcHits.length - 1); lcRender(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); lcSel = Math.max(lcSel - 1, 0); lcRender(); }
+      else if (e.key === 'Enter') { e.preventDefault(); lcOpen(lcHits[lcSel] && lcHits[lcSel].sym); }
+      else if (e.key === 'Escape') { lcInput.value = ''; lcHits = []; lcRender(); lcInput.blur(); }
+    });
+    $('#lc-go') && $('#lc-go').addEventListener('click', () => {
+      const hit = lcHits[lcSel] || lcSearch(lcInput.value)[0];
+      if (hit) lcOpen(hit.sym);
+      else { toast('Type an instrument name first — for example EURUSD', 'warn'); lcInput.focus(); }
+    });
+    document.addEventListener('click', e => {
+      if (!e.target.closest('.launcher') && !e.target.closest('#lc-results')) {
+        const box = $('#lc-results'); box && box.classList.remove('open');
+      }
+    });
+    // "/" focuses the launcher, like FXReplay and ChatGPT
+    document.addEventListener('keydown', e => {
+      if (e.key === '/' && document.activeElement !== lcInput &&
+          !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
+        e.preventDefault(); lcInput.focus();
+      }
+    });
+  }
+
+  // ============================================================ coverage
+  function renderCoverage() {
+    const host = $('#cov-grid');
+    if (!host) return;
+    const cats = Object.keys(SYMBOLS_BY_CAT);
+    const max = Math.max(...cats.map(c => SYMBOLS_BY_CAT[c].length));
+    const SUB = {
+      forex: 'Majors, crosses and exotics — Dukascopy tick archive',
+      indices: 'Cash index CFDs — Dukascopy',
+      commodities: 'Metals and energy — Dukascopy',
+      stocks: 'US single names — Dukascopy',
+      crypto: 'Spot pairs — Binance public API',
+    };
+    host.innerHTML = cats.map(c => {
+      const n = SYMBOLS_BY_CAT[c].length;
+      return `<button class="cov" data-cov="${c}">
+        <div class="cov-top">
+          <b><i class="fa-solid ${CAT_ICON[c] || 'fa-chart-line'}"></i> ${CAT_LABEL[c] || c}</b>
+          <span class="cov-n">${n}</span>
+        </div>
+        <div class="cov-track"><div class="cov-fill" style="width:${Math.round(n / max * 100)}%"></div></div>
+        <div class="cov-sub">${SUB[c] || ''}</div>
+      </button>`;
+    }).join('');
+    $$('#cov-grid .cov').forEach(b => b.addEventListener('click', () => {
+      show('markets');
+      const chip = $(`#mk-filters .chip[data-cat="${b.dataset.cov}"]`);
+      chip && chip.click();
+    }));
+    const tot = $('#stat-syms');
+    if (tot) tot.textContent = SYMBOLS.length;
+  }
+  renderCoverage();
+
+  // ============================================================ news
+  let hScope = 'upcoming';
+
+  function relTime(sec) {
+    const d = sec - Math.floor(Date.now() / 1000);
+    const a = Math.abs(d), suffix = d >= 0 ? '' : ' ago';
+    if (a < 3600) return (d >= 0 ? 'in ' : '') + Math.max(1, Math.round(a / 60)) + 'm' + suffix;
+    if (a < 86400) return (d >= 0 ? 'in ' : '') + Math.round(a / 3600) + 'h' + suffix;
+    return (d >= 0 ? 'in ' : '') + Math.round(a / 86400) + 'd' + suffix;
+  }
+
+  function nsCard(e) {
+    const d = new Date(e.t * 1000);
+    const day = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const val = (lbl, v, cls) => v
+      ? `<div><em>${lbl}</em><b class="${cls || ''}">${esc(v)}</b></div>` : '';
+    const tone = e.tone === 'better' ? 't-up' : e.tone === 'worse' ? 't-down' : '';
+    return `<div class="ns-card i-${e.impact}">
+      <div class="ns-bar"></div>
+      <div class="ns-when">${time}<small>${day} · ${relTime(e.t)}</small></div>
+      <div class="ns-cur">${esc(e.cur || '—')}</div>
+      <div class="ns-title">${esc(e.title)}</div>
+      <div class="ns-vals">
+        ${val('Actual', e.actual, tone)}
+        ${val('Forecast', e.forecast)}
+        ${val('Previous', e.previous)}
+        ${!e.actual && !e.forecast && !e.previous ? '<div><em>&nbsp;</em><b style="color:var(--t-4)">no figures</b></div>' : ''}
+      </div>
+    </div>`;
+  }
+
+  async function renderHomeNews() {
+    const host = $('#news-home');
+    if (!host || typeof NewsStore === 'undefined') return;
+    host.innerHTML = '<div class="ns-empty"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading the economic calendar…</div>';
+    try {
+      const raw = hScope === 'upcoming'
+        ? await NewsStore.upcoming(21)
+        : await NewsStore.recent(10);
+      const ev = NewsStore.filter(raw, { impacts: ['high', 'medium'] }).slice(0, 12);
+      if (!ev.length) {
+        host.innerHTML = `<div class="ns-empty">No high or medium impact releases ${hScope === 'upcoming' ? 'scheduled in the next three weeks' : 'in the last ten days'}.</div>`;
+        return;
+      }
+      host.innerHTML = ev.map(nsCard).join('');
+    } catch (err) {
+      host.innerHTML = `<div class="ns-empty">
+        <i class="fa-solid fa-triangle-exclamation" style="color:var(--warn)"></i>
+        The economic calendar is not reachable right now. Backtests still run — news markers are simply omitted.
+      </div>`;
+    }
+  }
+  $$('#news-home-scope .chip').forEach(c => c.addEventListener('click', () => {
+    $$('#news-home-scope .chip').forEach(x => x.classList.remove('active'));
+    c.classList.add('active');
+    hScope = c.dataset.hscope;
+    renderHomeNews();
+  }));
+  renderHomeNews();
 
   // ---------------------------------------------------------------- boot
   const hash = location.hash.slice(1);

@@ -11,6 +11,7 @@ export const terminalHTML = `<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css" rel="stylesheet">
 <link href="/static/css/theme.css" rel="stylesheet">
 <link href="/static/css/terminal.css" rel="stylesheet">
+<link href="/static/css/mobile.css" rel="stylesheet">
 </head>
 <body>
 <div id="terminal-root">
@@ -173,6 +174,7 @@ export const terminalHTML = `<!DOCTYPE html>
         <div id="dock-tabs">
           <button class="dock-tab active" data-tab="tester"><i class="fa-solid fa-flask-vial"></i> Backtest Report</button>
           <button class="dock-tab" data-tab="positions"><i class="fa-solid fa-layer-group"></i> Positions <span class="tab-count" id="cnt-open">0</span></button>
+          <button class="dock-tab" data-tab="news"><i class="fa-solid fa-bullhorn"></i> News <span class="tab-count" id="cnt-news">0</span></button>
           <button class="dock-tab" data-tab="editor"><i class="fa-solid fa-code"></i> Strategy Editor</button>
           <div id="dock-actions">
             <span id="dock-status"></span>
@@ -230,6 +232,30 @@ export const terminalHTML = `<!DOCTYPE html>
               <span class="eyebrow">Closed trades</span>
             </div>
             <div id="closed-trades-host"></div>
+          </div>
+
+          <!-- ---- News ---- -->
+          <div class="dock-page" data-page="news" style="padding:14px 16px;overflow:auto">
+            <div class="news-toolbar">
+              <div class="seg" id="news-scope">
+                <button class="active" data-scope="range">In backtest range</button>
+                <button data-scope="upcoming">Upcoming</button>
+              </div>
+              <div class="seg" id="news-imp">
+                <button class="active" data-imp="high">High</button>
+                <button data-imp="medium">+ Medium</button>
+                <button data-imp="all">All</button>
+              </div>
+              <label class="switch" style="margin-left:auto">
+                <input type="checkbox" id="news-only-sym" checked>
+                <span>Only this symbol's currencies</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" id="news-show-chart" checked>
+                <span>Show on chart</span>
+              </label>
+            </div>
+            <div id="news-host"></div>
           </div>
 
           <!-- ---- Editor ---- -->
@@ -393,6 +419,14 @@ export const terminalHTML = `<!DOCTYPE html>
         </div>
       </div>
     </div>
+    <div class="field form-row-full" style="margin-top:4px">
+      <label class="switch">
+        <input type="checkbox" id="bt-news" checked>
+        <span>Load the real economic calendar for this window</span>
+      </label>
+      <span class="field-hint">Marks releases on the chart and exposes them to strategies through
+        <code>ctx.news</code>. Adds one request per calendar month.</span>
+    </div>
     <div class="callout brand" style="margin-top:16px">
       <i class="fa-solid fa-circle-info"></i>
       <div>Longer ranges and lower timeframes download more files and take longer. A 2-year 1H forex test is roughly 24 monthly files; a 1-month M1 test is ~22 daily files.</div>
@@ -468,6 +502,7 @@ export const terminalHTML = `<!DOCTYPE html>
 <script src="/static/js/indicators.js"></script>
 <script src="/static/js/chart.js"></script>
 <script src="/static/js/drawings.js"></script>
+<script src="/static/js/news.js"></script>
 <script src="/static/js/engine.js"></script>
 <script src="/static/js/pine.js"></script>
 <script src="/static/js/strategies.js"></script>

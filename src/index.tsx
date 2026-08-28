@@ -102,6 +102,93 @@ app.get('/api/binance/klines', async (c) => {
 app.get('/api/health', (c) => c.json({ ok: true, ts: Date.now() }))
 
 // ---------------------------------------------------------------------------
+// Economic calendar (news) — real releases from ForexFactory.
+//   /api/news?month=may.2024   -> that calendar month (historical or future)
+//   /api/news                  -> current week
+// Returns a normalised, slim payload: only what the chart needs.
+// Cached hard at the edge: past months never change, upcoming ones change slowly.
+// ---------------------------------------------------------------------------
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+const MONTH_RE = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\.\d{4}$/
+
+const IMPACT: Record<string, string> = {
+  'High Impact Expected': 'high',
+  'Medium Impact Expected': 'medium',
+  'Low Impact Expected': 'low',
+  'Non-Economic': 'holiday',
+}
+
+// Pull the `days: [...]` array out of the embedded calendarComponentStates blob.
+function extractDays(html: string): any[] {
+  const anchor = html.indexOf('calendarComponentStates[1] = {')
+  if (anchor < 0) throw new Error('calendar payload not found')
+  const start = html.indexOf('days: [', anchor)
+  if (start < 0) throw new Error('days array not found')
+  let i = start + 'days: '.length
+  let depth = 0, inStr = false, esc = false
+  const from = i
+  for (; i < html.length; i++) {
+    const ch = html[i]
+    if (inStr) {
+      if (esc) esc = false
+      else if (ch === '\\') esc = true
+      else if (ch === '"') inStr = false
+      continue
+    }
+    if (ch === '"') inStr = true
+    else if (ch === '[') depth++
+    else if (ch === ']') { depth--; if (depth === 0) { i++; break } }
+  }
+  return JSON.parse(html.slice(from, i))
+}
+
+app.get('/api/news', async (c) => {
+  const month = c.req.query('month')
+  if (month && !MONTH_RE.test(month)) return c.json({ error: 'bad month' }, 400)
+
+  const url = month
+    ? `https://www.forexfactory.com/calendar?month=${month}`
+    : 'https://www.forexfactory.com/calendar?week=this'
+
+  try {
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      cf: { cacheTtl: 21600, cacheEverything: true },
+    } as RequestInit)
+    if (!r.ok) return c.json({ error: 'upstream ' + r.status, events: [] }, 502)
+
+    const days = extractDays(await r.text())
+    const events: any[] = []
+    for (const d of days) {
+      for (const e of (d.events || [])) {
+        if (!e.dateline) continue
+        events.push({
+          t: e.dateline,                              // unix seconds, UTC
+          cur: e.currency || '',
+          title: e.name || '',
+          impact: IMPACT[e.impactTitle] || 'low',
+          actual: e.actual || '',
+          forecast: e.forecast || '',
+          previous: e.previous || '',
+          // 'better'/'worse'/'' — FF's own read on actual vs forecast
+          tone: e.actualBetterWorse === 1 ? 'better' : e.actualBetterWorse === -1 ? 'worse' : '',
+        })
+      }
+    }
+    events.sort((a, b) => a.t - b.t)
+    return c.json({ ok: true, month: month || 'this-week', count: events.length, events }, 200, {
+      'Cache-Control': 'public, max-age=10800',
+    })
+  } catch (e: any) {
+    return c.json({ error: e.message || 'parse failed', events: [] }, 502)
+  }
+})
+
+// ---------------------------------------------------------------------------
 // Pages
 // ---------------------------------------------------------------------------
 app.get('/', (c) => c.html(dashboardHTML))

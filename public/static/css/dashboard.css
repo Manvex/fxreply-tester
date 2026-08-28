@@ -331,6 +331,181 @@
 .faq-a { display: none; padding: 0 17px 15px; font-size: 13px; color: var(--t-2); line-height: 1.68; }
 .faq-item.open .faq-a { display: block; }
 
+
+/* ==========================================================================
+   REFINEMENT LAYER — FXReplay density + ChatGPT calm
+   --------------------------------------------------------------------------
+   FXReplay gives us: chart-forward hero, dense tabular data cards, teal accent.
+   ChatGPT gives us: a flat quiet sidebar, generous whitespace, soft large radii,
+   a centred reading column, and chrome that gets out of the way.
+   This block is appended so it wins over the base rules above.
+   ========================================================================== */
+
+/* ---------- Sidebar: flat and quiet, ChatGPT style ---------- */
+#sidenav {
+  width: 260px;
+  background: var(--s-0);
+  border-right: 1px solid var(--line-soft);
+  padding-bottom: 8px;
+}
+.nav-brand {
+  border-bottom: none;
+  padding: 18px 16px 6px;
+}
+.nav-group { padding: 10px 10px 2px; }
+.nav-group > .eyebrow {
+  padding: 8px 10px 6px;
+  font-size: 10.5px; letter-spacing: .085em; color: var(--t-4);
+}
+.nav-item {
+  border-radius: 10px;
+  padding: 9px 11px;
+  font-size: 13.5px;
+  gap: 12px;
+  margin-bottom: 1px;
+}
+.nav-item:hover { background: var(--s-2); }
+/* ChatGPT keeps the active item as a soft filled pill — no coloured bar */
+.nav-item.active {
+  background: var(--s-2);
+  color: var(--t-1);
+  font-weight: 600;
+}
+.nav-item.active i { color: var(--brand); }
+.nav-item.active::before { display: none; }
+.nav-foot { padding: 10px 14px 6px; border-top: 1px solid var(--line-soft); }
+.data-status { background: transparent; border-color: var(--line-soft); }
+
+/* ---------- Main column: centred, roomy ---------- */
+.page-head {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 30px 0 22px;
+  margin: 0 auto;
+  width: min(1180px, 100% - 68px);
+}
+.page-head h1 { font-size: 26px; font-weight: 680; letter-spacing: -.025em; }
+.page-head p { font-size: 14px; line-height: 1.6; color: var(--t-2); }
+.page-body {
+  padding: 28px 0 84px;
+  margin: 0 auto;
+  width: min(1180px, 100% - 68px);
+}
+.section { margin-bottom: 40px; }
+.section-head { margin-bottom: 16px; }
+.section-head h2 { font-size: 15px; font-weight: 620; letter-spacing: -.01em; }
+
+/* ---------- Cards: softer, larger radius, flatter ---------- */
+.hero {
+  border-radius: 20px;
+  padding: 34px 36px;
+  background:
+    radial-gradient(1000px 340px at 88% -30%, var(--brand-glow), transparent 70%),
+    linear-gradient(150deg, var(--s-2) 0%, var(--s-1) 58%);
+  border-color: var(--line-soft);
+}
+.hero::after { display: none; }
+.hero-inner { max-width: 700px; }
+.hero h2 { font-size: 27px; font-weight: 690; letter-spacing: -.03em; line-height: 1.22; margin: 14px 0 10px; }
+.hero p { font-size: 14.5px; line-height: 1.66; }
+.steps { margin-top: 28px; gap: 12px; }
+.step {
+  background: rgba(11,13,16,.42);
+  border-color: var(--line-soft);
+  border-radius: 14px;
+  padding: 15px 16px;
+}
+.step-n { border-radius: 8px; width: 22px; height: 22px; }
+
+.stat, .strat-card, .market-card, .callout, .opt-card, .faq-item {
+  border-color: var(--line-soft);
+}
+.stat { border-radius: 16px; padding: 18px 20px; }
+.stat-value { font-family: var(--mono); letter-spacing: -.03em; }
+.strat-card { border-radius: 16px; }
+.market-card { border-radius: 14px; }
+.chip { border-radius: 999px; padding: 7px 15px; border-color: var(--line-soft); }
+
+/* Pill buttons — ChatGPT's signature shape */
+.btn { border-radius: 999px; }
+.btn-lg { padding: 11px 22px; }
+.hero-actions .btn { box-shadow: none; }
+
+/* ---------- FXReplay-style quick launcher ---------- */
+.launcher {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--s-1); border: 1px solid var(--line);
+  border-radius: 999px; padding: 7px 8px 7px 18px;
+  margin-bottom: 26px;
+  box-shadow: var(--sh-2);
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+}
+.launcher:focus-within { border-color: var(--brand-dim); box-shadow: 0 0 0 3px var(--brand-glow); }
+.launcher i.lc-ico { color: var(--t-3); font-size: 13px; }
+.launcher input {
+  flex: 1; min-width: 0; background: transparent; border: none; outline: none;
+  color: var(--t-1); font-size: 14.5px; font-family: var(--font);
+}
+.launcher input::placeholder { color: var(--t-4); }
+.launcher .btn { flex-shrink: 0; }
+.lc-results {
+  display: none; margin: -18px 0 26px;
+  background: var(--s-1); border: 1px solid var(--line); border-radius: 16px;
+  overflow: hidden; box-shadow: var(--sh-3);
+}
+.lc-results.open { display: block; }
+.lc-row {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 11px 18px; background: transparent; border: none; cursor: pointer;
+  color: var(--t-1); font-size: 13.5px; text-align: left; font-family: var(--font);
+  border-bottom: 1px solid var(--line-soft);
+}
+.lc-row:last-child { border-bottom: none; }
+.lc-row:hover, .lc-row.sel { background: var(--s-2); }
+.lc-row b { font-weight: 640; min-width: 82px; }
+.lc-row span { color: var(--t-3); font-size: 12.5px; flex: 1; }
+.lc-empty { padding: 16px 18px; color: var(--t-3); font-size: 13px; }
+
+/* ---------- FXReplay-style news strip ---------- */
+.news-strip { display: flex; flex-direction: column; gap: 8px; }
+.ns-card {
+  display: grid; grid-template-columns: 4px 82px 44px 1fr auto;
+  align-items: center; gap: 14px;
+  background: var(--s-1); border: 1px solid var(--line-soft);
+  border-radius: 12px; padding: 12px 16px 12px 0; overflow: hidden;
+}
+.ns-card .ns-bar { width: 4px; height: 100%; min-height: 42px; align-self: stretch; }
+.ns-card.i-high .ns-bar { background: var(--down); }
+.ns-card.i-medium .ns-bar { background: var(--warn); }
+.ns-card.i-low .ns-bar { background: var(--t-4); }
+.ns-card.i-holiday .ns-bar { background: #8b7cf0; }
+.ns-when { font-family: var(--mono); font-size: 12px; color: var(--t-2); }
+.ns-when small { display: block; color: var(--t-4); font-size: 10.5px; }
+.ns-cur {
+  font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  padding: 3px 0; text-align: center; border-radius: 6px;
+  background: var(--s-2); color: var(--t-2);
+}
+.ns-title { font-size: 13px; color: var(--t-1); line-height: 1.4; }
+.ns-vals { display: flex; gap: 14px; font-size: 11.5px; font-family: var(--mono); }
+.ns-vals div { text-align: right; }
+.ns-vals em { display: block; font-style: normal; color: var(--t-4); font-size: 10px; letter-spacing: .05em; text-transform: uppercase; }
+.ns-vals b { font-weight: 620; color: var(--t-1); }
+.ns-empty { padding: 26px; text-align: center; color: var(--t-3); font-size: 13px; }
+
+/* Instrument coverage bars */
+.cov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.cov {
+  background: var(--s-1); border: 1px solid var(--line-soft);
+  border-radius: 14px; padding: 15px 17px;
+}
+.cov-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cov-top b { font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.cov-top b i { color: var(--brand); font-size: 12px; }
+.cov-n { font-family: var(--mono); font-size: 19px; font-weight: 700; letter-spacing: -.02em; }
+.cov-track { height: 4px; border-radius: 3px; background: var(--s-3); margin-top: 12px; overflow: hidden; }
+.cov-fill { height: 100%; background: linear-gradient(90deg, var(--brand-dim), var(--brand)); border-radius: 3px; }
+.cov-sub { font-size: 11px; color: var(--t-3); margin-top: 8px; }
+
 /* ==========================================================================
    Responsive
    ========================================================================== */
@@ -338,12 +513,15 @@
   .docs-layout { grid-template-columns: 1fr; }
   .docs-toc { position: static; display: none; }
 }
-@media (max-width: 860px) {
-  #sidenav { width: 62px; }
+/* Collapsed icon rail — only in the tablet band. Below 781px the sidenav
+   becomes a full off-canvas drawer (mobile.css), so it must keep its labels. */
+@media (min-width: 781px) and (max-width: 980px) {
+  #sidenav { width: 64px; }
   .brand-text, .nav-item span, .nav-group > .eyebrow, .nav-foot { display: none; }
   .nav-item { justify-content: center; padding: 11px 0; }
+  .nav-item .nav-badge { display: none; }
   .nav-brand { justify-content: center; padding: 18px 0; }
-  .page-head, .page-body { padding-left: 18px; padding-right: 18px; }
+  .page-head, .page-body { padding-left: 20px; padding-right: 20px; }
   .form-grid.cols-2 { grid-template-columns: 1fr; }
   .wiz-node .wn-label { display: none; }
 }

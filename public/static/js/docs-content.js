@@ -399,6 +399,14 @@ rewind together.</p>
 
 const FAQ_ITEMS = [
   {
+    q: 'Where do the news events on my chart come from?',
+    a: 'The ForexFactory economic calendar, fetched live through the /api/news proxy. Past releases carry the actual figure alongside the forecast and previous value; upcoming releases carry the forecast only. Markers are coloured by impact — red for high, amber for medium — and are snapped onto the bar whose window contains the release time. If the calendar is unreachable, the backtest still runs and simply omits the markers.',
+  },
+  {
+    q: 'Can my strategy read the economic calendar?',
+    a: 'Yes. In JavaScript use ctx.news.minsToNext([\'high\']), ctx.news.minsSinceLast(...), ctx.news.isNear(mins, ...), plus next(), last(), today() and count(). In Python the same helpers are ctx.news_mins_to_next, ctx.news_mins_since_last, ctx.news_is_near and ctx.news_count. In Pine they are news.mins_to_next("high"), news.mins_since_last(...), news.is_near(30, "high") and news.count(). All of them return Infinity when nothing matches, so a strategy behaves normally if the calendar fails to load. See the "News Blackout Trend" and "Post-Release Momentum" strategies in the library for worked examples.',
+  },
+  {
     q: 'Is the price data real, or simulated?',
     a: `Real. Forex, indices, stocks and commodities come from the Dukascopy historical archive
     (a Swiss bank publishing its own tick data); crypto comes from the Binance spot API. The binary

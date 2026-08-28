@@ -105,6 +105,20 @@ const BacktestUI = (() => {
         return;
       }
 
+      // Real economic calendar for the same window — used by the news overlay
+      // and exposed to strategies via ctx.news.
+      let newsEvents = [];
+      const wantNews = !$('#bt-news') || $('#bt-news').checked;
+      if (wantNews) {
+        setP(0.47, 'Loading economic calendar…');
+        try {
+          newsEvents = await NewsStore.load(fromSec, toSec);
+        } catch (e) {
+          console.warn('[news] load failed', e);
+          window.App.toast('Economic calendar unavailable — continuing without news', 'warn');
+        }
+      }
+
       const prop = propFromUI();
       const broker = new Broker({
         balance: parseFloat($('#bt-balance').value) || 100000,
@@ -118,24 +132,26 @@ const BacktestUI = (() => {
       setP(0.5, 'Running strategy…');
       await StrategyRunner.run(lang, code, candles, broker,
         f => setP(0.5 + f * 0.45, 'Running strategy…'),
-        msg => setP(0.5, msg));
+        msg => setP(0.5, msg), newsEvents);
 
       if (broker.positions.length) broker.closeAll(candles[candles.length - 1], 'end');
 
       setP(0.97, 'Computing statistics…');
       const stats = computeStats(broker, candles);
-      lastStats = { stats, broker, candles, sym, tf };
+      lastStats = { stats, broker, candles, sym, tf, news: newsEvents };
 
       const meta = {
         sym, tf, bars: candles.length,
         from: day(candles[0].time), to: day(candles[candles.length - 1].time),
         prop: PROP_LABEL[$('#bt-prop').value] || 'No rules',
+        news: newsEvents.length,
         spread: parseFloat($('#bt-spread').value) || 0,
         lev: parseInt($('#bt-leverage').value) || 100,
       };
 
       renderResults(stats, broker, candles, meta);
-      renderChartMarkers(broker, candles);
+      renderChartMarkers(broker, candles, newsEvents, tf);
+      window.App.setNewsEvents(newsEvents, tf);
       setP(1, 'Done');
       setTimeout(() => { progress.classList.add('hidden'); if (runBtn) runBtn.disabled = false; }, 500);
 
@@ -156,7 +172,7 @@ const BacktestUI = (() => {
   }
 
   // ---- chart markers ----------------------------------------------------
-  function renderChartMarkers(broker, candles) {
+  function renderChartMarkers(broker, candles, newsEvents, tf) {
     ChartMgr.setData(candles, window.App.currentSymbolInfo);
     const markers = [];
     for (const t of broker.closed) {
@@ -174,7 +190,7 @@ const BacktestUI = (() => {
       });
     }
     markers.sort((a, b) => a.time - b.time);
-    ChartMgr.setMarkers(markers.slice(0, 500));
+    ChartMgr.setTradeMarkers(markers.slice(0, 500));
   }
 
   // ---- report root ------------------------------------------------------
@@ -192,7 +208,8 @@ const BacktestUI = (() => {
         `<span class="pill">${meta.from} → ${meta.to}</span>` +
         `<span class="pill">1:${meta.lev}</span>` +
         `<span class="pill">spread ${meta.spread}</span>` +
-        (meta.prop !== 'No rules' ? `<span class="pill pill-brand">${meta.prop}</span>` : '');
+        (meta.prop !== 'No rules' ? `<span class="pill pill-brand">${meta.prop}</span>` : '') +
+        (meta.news ? `<span class="pill"><i class="fa-solid fa-bullhorn"></i> ${meta.news} events</span>` : '');
     }
 
     renderOverview(s, broker);

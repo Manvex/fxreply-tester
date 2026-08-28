@@ -236,8 +236,73 @@ def bar(i, candles, ctx):
     return n;
   }
 
+
+  // -------------------------------------------------------------------------
+  // News access for strategies. `events` is the real economic calendar slice
+  // loaded for the backtest window (may be empty if the user disabled news).
+  // Times are unix seconds UTC. Built once per run into a sorted array so
+  // lookups during the bar loop stay cheap.
+  // -------------------------------------------------------------------------
+  function makeNewsApi(events, candles, curBarRef) {
+    const ev = (events || []).slice().sort((a, b) => a.t - b.t);
+    const times = ev.map(e => e.t);
+    const now = () => candles[curBarRef.i].time;
+
+    function idxAfter(t) {           // first event with time >= t
+      let lo = 0, hi = times.length;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (times[m] < t) lo = m + 1; else hi = m; }
+      return lo;
+    }
+    const match = (e, imp, cur) =>
+      (!imp || imp.includes(e.impact)) && (!cur || cur.includes(e.cur));
+
+    return {
+      // Total events loaded for this run.
+      count: () => ev.length,
+      // Minutes until the next matching release (Infinity if none ahead).
+      minsToNext(impacts = ['high'], currencies = null) {
+        const t = now();
+        for (let i = idxAfter(t); i < ev.length; i++)
+          if (match(ev[i], impacts, currencies)) return (ev[i].t - t) / 60;
+        return Infinity;
+      },
+      // Minutes since the last matching release (Infinity if none behind).
+      minsSinceLast(impacts = ['high'], currencies = null) {
+        const t = now();
+        for (let i = idxAfter(t) - 1; i >= 0; i--)
+          if (match(ev[i], impacts, currencies)) return (t - ev[i].t) / 60;
+        return Infinity;
+      },
+      // True when a matching release falls inside +/- `mins` of this bar.
+      isNear(mins = 30, impacts = ['high'], currencies = null) {
+        return this.minsToNext(impacts, currencies) <= mins ||
+               this.minsSinceLast(impacts, currencies) <= mins;
+      },
+      // The next matching event object, or null.
+      next(impacts = ['high'], currencies = null) {
+        const t = now();
+        for (let i = idxAfter(t); i < ev.length; i++)
+          if (match(ev[i], impacts, currencies)) return ev[i];
+        return null;
+      },
+      // The most recent matching event object, or null.
+      last(impacts = ['high'], currencies = null) {
+        const t = now();
+        for (let i = idxAfter(t) - 1; i >= 0; i--)
+          if (match(ev[i], impacts, currencies)) return ev[i];
+        return null;
+      },
+      // Everything on this bar's calendar day.
+      today(impacts = null, currencies = null) {
+        const d = new Date(now() * 1000);
+        const s0 = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 1000;
+        return ev.filter(e => e.t >= s0 && e.t < s0 + 86400 && match(e, impacts, currencies));
+      },
+    };
+  }
+
   // ---------------- JS ctx factory ----------------
-  function makeCtx(broker, candles, curBarRef) {
+  function makeCtx(broker, candles, curBarRef, events) {
     const atr14 = TA.atr(candles, 14);
     const bar = () => candles[curBarRef.i];
     return {
@@ -255,14 +320,15 @@ def bar(i, candles, ctx):
       positions: () => broker.positions,
       riskLots: (pct, dist) => riskLots(broker, pct, dist),
       setStops: (sl = null, tp = null) => setStops(broker, sl, tp),
+      news: makeNewsApi(events, candles, curBarRef),
       log: (...a) => { try { console.log('[strategy]', ...a); } catch (_) {} },
     };
   }
 
   // ---------------- runners ----------------
-  async function runJS(code, candles, broker, onProgress) {
+  async function runJS(code, candles, broker, onProgress, events) {
     const curBarRef = { i: 0 };
-    const ctx = makeCtx(broker, candles, curBarRef);
+    const ctx = makeCtx(broker, candles, curBarRef, events);
     // compile user code in a function scope exposing init/bar
     const fn = new Function('candles', 'ctx', 'TA', `
       "use strict";
@@ -292,7 +358,7 @@ def bar(i, candles, ctx):
   }
 
   // ---------------- Pine runner ----------------
-  async function runPine(code, candles, broker, onProgress) {
+  async function runPine(code, candles, broker, onProgress, events) {
     const program = Pine.compile(code);
     const curBar = { i: 0 };
     const pendingExits = new Map(); // entryId -> {stop, limit}
@@ -327,6 +393,8 @@ def bar(i, candles, ctx):
         }
       },
       closeAll: () => broker.closeAll(candles[curBar.i], 'strategy'),
+      // Real economic-calendar releases, reachable from Pine as news.*
+      news: makeNewsApi(events, candles, curBar),
     };
 
     const rt = Pine.createRuntime(candles, actions);
@@ -371,7 +439,7 @@ def bar(i, candles, ctx):
     return pyodideLoading;
   }
 
-  async function runPython(code, candles, broker, onProgress, onStatus) {
+  async function runPython(code, candles, broker, onProgress, onStatus, events) {
     const py = await ensurePyodide(onStatus);
     onStatus?.('Running Python strategy…');
     const curBar = { i: 0 };
@@ -388,7 +456,12 @@ def bar(i, candles, ctx):
       risk_lots: (pct, dist) => riskLots(broker, pct, dist),
       set_stops: (sl, tp) => setStops(broker, sl ?? null, tp ?? null),
       log: (msg) => { try { console.log('[strategy:py]', msg); } catch (_) {} },
+      news_mins_to_next: (imp, cur) => _pyNews.minsToNext(imp || ['high'], cur || null),
+      news_mins_since_last: (imp, cur) => _pyNews.minsSinceLast(imp || ['high'], cur || null),
+      news_is_near: (mins, imp, cur) => _pyNews.isNear(mins ?? 30, imp || ['high'], cur || null),
+      news_count: () => _pyNews.count(),
     };
+    const _pyNews = makeNewsApi(events, candles, curBar);
     py.globals.set('_js_ctx', bridge);
     py.globals.set('_candles_json', JSON.stringify(candles));
 
@@ -414,6 +487,14 @@ class _Ctx:
         return self._js.open_count()
     def risk_lots(self, pct, dist):
         return self._js.risk_lots(float(pct), float(dist))
+    def news_mins_to_next(self, impacts=None, currencies=None):
+        return self._js.news_mins_to_next(impacts, currencies)
+    def news_mins_since_last(self, impacts=None, currencies=None):
+        return self._js.news_mins_since_last(impacts, currencies)
+    def news_is_near(self, mins=30, impacts=None, currencies=None):
+        return self._js.news_is_near(float(mins), impacts, currencies)
+    def news_count(self):
+        return self._js.news_count()
     def set_stops(self, sl=None, tp=None):
         return self._js.set_stops(sl, tp)
     def log(self, *args):
@@ -453,10 +534,10 @@ if _has_init:
     broker.finishProp();
   }
 
-  async function run(lang, code, candles, broker, onProgress, onStatus) {
-    if (lang === 'js') return runJS(code, candles, broker, onProgress);
-    if (lang === 'pine') return runPine(code, candles, broker, onProgress);
-    if (lang === 'python') return runPython(code, candles, broker, onProgress, onStatus);
+  async function run(lang, code, candles, broker, onProgress, onStatus, events) {
+    if (lang === 'js') return runJS(code, candles, broker, onProgress, events);
+    if (lang === 'pine') return runPine(code, candles, broker, onProgress, events);
+    if (lang === 'python') return runPython(code, candles, broker, onProgress, onStatus, events);
     throw new Error('unknown language');
   }
 

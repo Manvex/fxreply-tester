@@ -1,0 +1,238 @@
+/* ==========================================================================
+   News panel + full responsive layer.
+   Loaded last so it can override dashboard.css / terminal.css.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   News rows (terminal dock -> News tab)
+   -------------------------------------------------------------------------- */
+.news-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding-bottom: 12px; margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.news-head {
+  font-size: 12px; color: var(--t-2); margin-bottom: 10px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--line);
+}
+.news-head b { color: var(--t-1); }
+.news-loading { padding: 28px; text-align: center; color: var(--t-3); font-size: 13px; }
+
+.news-row {
+  display: grid;
+  grid-template-columns: 30px 132px 46px 1fr auto;
+  align-items: center; gap: 12px;
+  padding: 9px 10px; border-radius: var(--r-sm);
+  border-left: 3px solid transparent;
+  background: var(--s-1);
+  margin-bottom: 5px;
+  transition: background .12s var(--ease);
+}
+.news-row:hover { background: var(--s-2); }
+.news-row.imp-high    { border-left-color: var(--down); }
+.news-row.imp-medium  { border-left-color: #f0a132; }
+.news-row.imp-low     { border-left-color: var(--line-str); }
+.news-row.imp-holiday { border-left-color: #8b7cf0; }
+
+.nr-imp { display: grid; place-items: center; font-size: 11px; }
+.imp-high    .nr-imp { color: var(--down); }
+.imp-medium  .nr-imp { color: #f0a132; }
+.imp-low     .nr-imp { color: var(--t-4); font-size: 7px; }
+.imp-holiday .nr-imp { color: #8b7cf0; }
+
+.nr-when { display: flex; flex-direction: column; line-height: 1.3; }
+.nr-when b { font-family: var(--mono); font-size: 11.5px; color: var(--t-1); font-weight: 500; }
+.nr-when span { font-size: 10px; color: var(--t-4); }
+
+.nr-cur {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  color: var(--t-2); background: var(--s-3);
+  padding: 3px 0; border-radius: 4px; text-align: center;
+}
+.nr-title { font-size: 12.5px; color: var(--t-1); line-height: 1.35; }
+
+.nr-vals { display: flex; gap: 14px; align-items: center; }
+.nv { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.3; }
+.nv i { font-style: normal; font-size: 9.5px; color: var(--t-4); text-transform: uppercase; letter-spacing: .04em; }
+.nv b { font-family: var(--mono); font-size: 12px; color: var(--t-1); font-weight: 500; }
+.nv-none { font-size: 10.5px; color: var(--t-4); font-style: italic; }
+
+/* --------------------------------------------------------------------------
+   Mobile nav shell (dashboard) — injected by dashboard.js
+   -------------------------------------------------------------------------- */
+#mobile-bar {
+  display: none;
+  position: sticky; top: 0; z-index: 60;
+  align-items: center; gap: 12px;
+  padding: 10px 14px;
+  background: var(--s-1); border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(12px);
+}
+#mobile-bar .mb-brand { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 14px; }
+#mobile-bar .mb-brand .brand-mark { width: 26px; height: 26px; font-size: 13px; }
+#nav-toggle {
+  background: var(--s-2); border: 1px solid var(--line); color: var(--t-1);
+  width: 36px; height: 36px; border-radius: var(--r-sm);
+  display: grid; place-items: center; cursor: pointer; font-size: 15px;
+}
+#nav-scrim {
+  display: none; position: fixed; inset: 0; z-index: 70;
+  background: rgba(0,0,0,.6); backdrop-filter: blur(2px);
+}
+#nav-scrim.open { display: block; }
+
+/* --------------------------------------------------------------------------
+   Tablet  (<= 1100px)
+   -------------------------------------------------------------------------- */
+@media (max-width: 1100px) {
+  #rail { display: none !important; }
+  .stat-grid { grid-template-columns: repeat(3, 1fr) !important; }
+  .strat-grid, .market-grid { grid-template-columns: repeat(2, 1fr) !important; }
+  .docs-layout { grid-template-columns: 1fr !important; }
+  .docs-toc { display: none !important; }
+  #ov-kpis { grid-template-columns: repeat(3, 1fr) !important; }
+}
+
+/* --------------------------------------------------------------------------
+   Mobile  (<= 780px)
+   -------------------------------------------------------------------------- */
+@media (max-width: 780px) {
+  #mobile-bar { display: flex; }
+
+  /* Sidenav becomes an off-canvas drawer */
+  #shell { flex-direction: column; }
+  #sidenav {
+    position: fixed; z-index: 80; top: 0; left: 0; bottom: 0;
+    width: 268px !important; height: 100vh;
+    transform: translateX(-100%);
+    transition: transform .24s var(--ease);
+    box-shadow: var(--sh-4);
+  }
+  #sidenav.open { transform: translateX(0); }
+  #sidenav .nav-item { padding: 12px 16px; font-size: 14.5px; }
+  #main { padding: 0 !important; }
+  .page-head { padding: 16px 14px 12px !important; }
+  .page-body { padding: 0 14px 28px !important; }
+  .page-head h1 { font-size: 20px !important; }
+  .page-head p  { font-size: 13px !important; }
+
+  /* One column everywhere */
+  .stat-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 8px !important; }
+  .strat-grid, .market-grid { grid-template-columns: 1fr !important; }
+  .form-grid, .form-grid.cols-2 { grid-template-columns: 1fr !important; }
+  .opt-cards { grid-template-columns: repeat(2, 1fr) !important; }
+  #ov-kpis { grid-template-columns: repeat(2, 1fr) !important; }
+  .kpi.wide { grid-column: 1 / -1 !important; }
+
+  /* Hero / steps stack */
+  .hero-inner { grid-template-columns: 1fr !important; }
+  .steps { grid-template-columns: 1fr !important; }
+  .hero h2 { font-size: 22px !important; }
+
+  /* Wizard rail goes horizontal + scrollable */
+  .wizard { grid-template-columns: 1fr !important; }
+  .wiz-rail {
+    display: flex !important; flex-direction: row !important;
+    overflow-x: auto; gap: 6px; padding-bottom: 10px;
+    position: static !important;
+  }
+  .wiz-node { flex: 0 0 auto; flex-direction: row !important; gap: 7px; }
+  .wiz-line { display: none !important; }
+  .wn-label { font-size: 11.5px; }
+
+  /* Tap targets */
+  .btn { min-height: 40px; padding: 9px 14px; }
+  .btn-sm { min-height: 34px; }
+  input, select, textarea { font-size: 15px !important; min-height: 42px; }
+  .chip { padding: 7px 13px; font-size: 12.5px; }
+
+  /* Tables scroll instead of squeezing */
+  .table-wrap, .prose table { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table.dt { min-width: 620px; }
+  .month-grid { min-width: 760px; }
+
+  /* News rows reflow to two lines */
+  .news-row {
+    grid-template-columns: 26px 1fr auto;
+    grid-template-areas: "imp when cur" "imp title title" "imp vals vals";
+    gap: 4px 10px; padding: 10px;
+  }
+  .nr-imp { grid-area: imp; align-self: start; margin-top: 3px; }
+  .nr-when { grid-area: when; }
+  .nr-cur  { grid-area: cur; padding: 3px 8px; }
+  .nr-title { grid-area: title; font-size: 13px; }
+  .nr-vals { grid-area: vals; justify-content: flex-start; gap: 18px; margin-top: 4px; }
+  .nv { align-items: flex-start; }
+  .news-toolbar { gap: 8px; }
+  .news-toolbar .switch { font-size: 11.5px; }
+
+  /* Dialogs become sheets */
+  .dialog {
+    width: 100% !important; max-width: 100% !important;
+    max-height: 92vh; border-radius: var(--r-lg) var(--r-lg) 0 0;
+    position: fixed; left: 0; right: 0; bottom: 0; top: auto;
+    transform: none !important;
+  }
+  .dialog-body { max-height: 68vh; }
+  .dialog-foot { position: sticky; bottom: 0; background: var(--s-2); }
+
+  /* Prose readability */
+  .prose h2 { font-size: 18px !important; }
+  .prose p, .prose li { font-size: 14px !important; }
+  .prose pre { font-size: 11.5px !important; }
+}
+
+/* --------------------------------------------------------------------------
+   Terminal on mobile — the chart stays usable, panels stack
+   -------------------------------------------------------------------------- */
+@media (max-width: 780px) {
+  #topbar { flex-wrap: wrap; height: auto; padding: 8px 10px; gap: 8px; }
+  #topbar .tb-divider { display: none; }
+  #bars-info { display: none; }
+  #acct-chip { order: 10; width: 100%; justify-content: space-between; }
+  .tf-bar { overflow-x: auto; }
+  .tf-btn { flex: 0 0 auto; }
+
+  /* Drawing rail becomes a horizontal strip above the chart */
+  #work-row { flex-direction: column; }
+  #tools {
+    flex-direction: row !important; width: 100% !important;
+    overflow-x: auto; border-right: none !important;
+    border-bottom: 1px solid var(--line);
+    padding: 6px !important; gap: 4px;
+  }
+  #tools .tool-btn { flex: 0 0 auto; }
+  #tools .tool-sep { display: none; }
+
+  #chart-zone { min-height: 46vh; }
+  #dock { max-height: 52vh; }
+  #dock-tabs { overflow-x: auto; }
+  .dock-tab { flex: 0 0 auto; font-size: 12px; padding: 9px 11px; }
+  #results-sub { overflow-x: auto; }
+  .res-tab { flex: 0 0 auto; }
+
+  /* Order ticket becomes a bottom sheet */
+  #ticket {
+    position: fixed !important; left: 0; right: 0; bottom: 0; top: auto !important;
+    width: 100% !important; z-index: 55;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    max-height: 76vh; overflow-y: auto;
+  }
+  #replay-bar { flex-wrap: wrap; height: auto; padding: 7px 9px; gap: 7px; }
+  #editor-split { grid-template-columns: 1fr !important; }
+  #api-help { display: none; }
+  #chart-hint { left: 8px; right: 8px; max-width: none; }
+}
+
+/* Very small phones */
+@media (max-width: 420px) {
+  .stat-grid { grid-template-columns: 1fr !important; }
+  .opt-cards { grid-template-columns: 1fr !important; }
+  #ov-kpis { grid-template-columns: 1fr !important; }
+  .nr-vals { gap: 12px; }
+}
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

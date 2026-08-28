@@ -10,9 +10,18 @@ export const dashboardHTML = `<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css" rel="stylesheet">
 <link href="/static/css/theme.css" rel="stylesheet">
 <link href="/static/css/dashboard.css" rel="stylesheet">
+<link href="/static/css/mobile.css" rel="stylesheet">
 </head>
 <body>
 <div id="shell">
+
+  <!-- ======================== MOBILE TOP BAR ======================== -->
+  <header id="mobile-bar">
+    <button id="nav-toggle" aria-label="Open menu"><i class="fa-solid fa-bars"></i></button>
+    <div class="mb-brand"><span class="brand-mark"><i class="fa-solid fa-chart-line"></i></span> BlackTick</div>
+    <a class="mb-cta" href="/terminal" aria-label="Open terminal"><i class="fa-solid fa-chart-candlestick"></i></a>
+  </header>
+  <div id="nav-scrim"></div>
 
   <!-- ============================== SIDEBAR ============================== -->
   <nav id="sidenav">
@@ -66,6 +75,16 @@ export const dashboardHTML = `<!DOCTYPE html>
       </div>
 
       <div class="page-body">
+
+        <!-- Quick launcher — type a symbol, go straight to the chart -->
+        <div class="launcher">
+          <i class="fa-solid fa-magnifying-glass lc-ico"></i>
+          <input id="lc-input" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="Search any instrument — EURUSD, BTCUSDT, NAS100, AAPL…">
+          <button class="btn btn-primary" id="lc-go"><i class="fa-solid fa-chart-candlestick"></i> Open</button>
+        </div>
+        <div class="lc-results" id="lc-results"></div>
+
         <!-- Hero -->
         <div class="hero">
           <div class="hero-inner">
@@ -77,8 +96,8 @@ export const dashboardHTML = `<!DOCTYPE html>
               <a class="btn btn-outline btn-lg" href="/terminal"><i class="fa-solid fa-chart-candlestick"></i> Jump into the terminal</a>
             </div>
             <div class="steps">
-              <div class="step"><div class="step-n">1</div><b>Pick a market</b><span>48 instruments across forex, indices, stocks, commodities and crypto.</span></div>
-              <div class="step"><div class="step-n">2</div><b>Pick a strategy</b><span>12 documented strategies, or write your own in JS, Pine or Python.</span></div>
+              <div class="step"><div class="step-n">1</div><b>Pick a market</b><span>134 instruments across forex, indices, stocks, commodities and crypto.</span></div>
+              <div class="step"><div class="step-n">2</div><b>Pick a strategy</b><span>A documented library, or write your own in JS, Pine or Python.</span></div>
               <div class="step"><div class="step-n">3</div><b>Set the account</b><span>Balance, leverage, spread, commission — and optional prop-firm limits.</span></div>
               <div class="step"><div class="step-n">4</div><b>Read the report</b><span>Equity curve, every trade, monthly returns, drawdown, rule breaches.</span></div>
             </div>
@@ -91,7 +110,7 @@ export const dashboardHTML = `<!DOCTYPE html>
           <div class="stat-grid">
             <div class="stat accent">
               <div class="stat-label">Instruments</div>
-              <div class="stat-value">48</div>
+              <div class="stat-value" id="stat-syms">134</div>
               <div class="stat-sub">Forex · indices · stocks · commodities · crypto</div>
             </div>
             <div class="stat">
@@ -151,11 +170,37 @@ export const dashboardHTML = `<!DOCTYPE html>
           </div>
         </div>
 
+        <!-- Instrument coverage -->
+        <div class="section">
+          <div class="section-head">
+            <h2><i class="fa-solid fa-list-check"></i> Instrument coverage</h2>
+            <button class="btn btn-ghost btn-sm" data-goto="markets">Browse all <i class="fa-solid fa-arrow-right"></i></button>
+          </div>
+          <div class="cov-grid" id="cov-grid"></div>
+        </div>
+
+        <!-- Economic calendar -->
+        <div class="section">
+          <div class="section-head">
+            <div>
+              <h2><i class="fa-solid fa-bullhorn"></i> Economic calendar</h2>
+              <p>Live releases from ForexFactory. The same feed is plotted on your chart during a backtest and exposed to strategies as <code>ctx.news</code>.</p>
+            </div>
+            <div class="chips" id="news-home-scope">
+              <button class="chip active" data-hscope="upcoming">Upcoming</button>
+              <button class="chip" data-hscope="recent">Released</button>
+            </div>
+          </div>
+          <div class="news-strip" id="news-home">
+            <div class="ns-empty"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading the economic calendar…</div>
+          </div>
+        </div>
+
         <!-- Popular markets -->
         <div class="section">
           <div class="section-head">
             <h2><i class="fa-solid fa-globe"></i> Popular markets</h2>
-            <button class="btn btn-ghost btn-sm" data-goto="markets">See all 48 <i class="fa-solid fa-arrow-right"></i></button>
+            <button class="btn btn-ghost btn-sm" data-goto="markets">See all <i class="fa-solid fa-arrow-right"></i></button>
           </div>
           <div class="market-grid" id="home-markets"></div>
         </div>
@@ -339,7 +384,7 @@ export const dashboardHTML = `<!DOCTYPE html>
       <div class="page-head">
         <div>
           <h1>Markets</h1>
-          <p>All 48 instruments, the feed each one comes from, and the contract details used to compute profit and margin.</p>
+          <p>All 134 instruments, the feed each one comes from, and the contract details used to compute profit and margin.</p>
         </div>
       </div>
       <div class="page-body">
@@ -438,6 +483,7 @@ export const dashboardHTML = `<!DOCTYPE html>
 <div id="toast-host"></div>
 
 <script src="/static/js/symbols.js"></script>
+<script src="/static/js/news.js"></script>
 <script src="/static/js/strategies.js"></script>
 <script src="/static/js/docs-content.js"></script>
 <script src="/static/js/dashboard.js"></script>

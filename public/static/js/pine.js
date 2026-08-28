@@ -5,6 +5,7 @@
 // series history x[n], input.int/float/bool/string/source, na/nz,
 // ta.sma/ema/rma/wma/rsi/atr/tr/stdev/highest/lowest/change/crossover/crossunder,
 // math.*, strategy.entry/exit/close/close_all, strategy.position_size,
+// news.* (BlackTick extension: mins_to_next, mins_since_last, is_near, count),
 // builtins: open/high/low/close/volume/hl2/hlc3/ohlc4/bar_index/time, plot (no-op)
 // ===========================================================================
 const Pine = (() => {
@@ -462,6 +463,26 @@ const Pine = (() => {
         const from = named.from_entry ?? args[1] ?? null;
         actions.exit(id, from, named.stop ?? NaN, named.limit ?? NaN, named.loss ?? NaN, named.profit ?? NaN);
         return NaN;
+      }
+      // ---- Economic calendar (BlackTick extension, not standard Pine) ----
+      // news.mins_to_next("high"), news.is_near(30, "high"), news.count()
+      if (nm.startsWith('news.')) {
+        const N = actions.news;
+        if (!N) return NaN;
+        const imp = (v) => {
+          if (v === undefined || v === null || v === '') return ['high'];
+          if (v === 'all') return ['high', 'medium', 'low', 'holiday'];
+          return String(v).split(',').map(x => x.trim()).filter(Boolean);
+        };
+        const cur = (v) => (v === undefined || v === null || v === '')
+          ? null : String(v).split(',').map(x => x.trim().toUpperCase()).filter(Boolean);
+        switch (nm) {
+          case 'news.count':           return N.count();
+          case 'news.mins_to_next':    return N.minsToNext(imp(args[0]), cur(args[1]));
+          case 'news.mins_since_last': return N.minsSinceLast(imp(args[0]), cur(args[1]));
+          case 'news.is_near':         return N.isNear(args[0] ?? 30, imp(args[1]), cur(args[2]));
+          default: throw new Error(`Pine: unsupported function '${nm}'`);
+        }
       }
       if (nm === 'strategy.close') { actions.closeId(args[0] ?? null); return NaN; }
       if (nm === 'strategy.close_all') { actions.closeAll(); return NaN; }
