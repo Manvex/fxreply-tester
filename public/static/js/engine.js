@@ -132,6 +132,28 @@ class Broker {
     this.equitySeries.push({ time: bar.time, equity: eq, balance: this.balance });
   }
 
+  // --- state snapshots (used by Replay so stepping back really rewinds) ---
+  snapshot() {
+    return {
+      balance: this.balance,
+      nextId: this.nextId,
+      positions: this.positions.map(p => ({ ...p })),
+      closed: this.closed.length,
+      equityLen: this.equitySeries.length,
+      propState: this.propState ? JSON.parse(JSON.stringify(this.propState)) : null,
+    };
+  }
+
+  restore(s) {
+    if (!s) return;
+    this.balance = s.balance;
+    this.nextId = s.nextId;
+    this.positions = s.positions.map(p => ({ ...p }));
+    this.closed.length = s.closed;
+    this.equitySeries.length = s.equityLen;
+    this.propState = s.propState ? JSON.parse(JSON.stringify(s.propState)) : null;
+  }
+
   checkProp(bar, eq, worstEq) {
     const ps = this.propState, rules = this.prop;
     const dayKey = Math.floor(bar.time / 86400);
@@ -224,20 +246,28 @@ function computeStats(broker, candles) {
     m.pnl += t.pnl; m.trades++; if (t.pnl > 0) m.wins++;
   }
   // monthly equity % (based on balance at month boundaries)
+  // Return of month M = (equity at last bar of M / equity at last bar of M-1) - 1.
+  // For the first month the reference is the initial balance.
   const monthlyPct = new Map();
-  if (eq.length) {
-    let curKey = null, startBal = initial;
+  {
+    let curKey = null;
+    let startEq = initial;   // equity entering the current month
+    let lastEq = initial;    // equity at the most recent bar seen
     for (const e of eq) {
       const d = new Date(e.time * 1000);
       const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
       if (key !== curKey) {
-        if (curKey !== null) { /* close prev */ }
-        if (curKey !== null) monthlyPct.set(curKey, (lastEq / startBal - 1) * 100);
-        curKey = key; startBal = lastEq ?? initial;
+        if (curKey !== null && startEq > 0) {
+          monthlyPct.set(curKey, (lastEq / startEq - 1) * 100);
+        }
+        startEq = lastEq;    // previous month's closing equity opens this one
+        curKey = key;
       }
-      var lastEq = e.equity;
+      lastEq = e.equity;
     }
-    if (curKey !== null) monthlyPct.set(curKey, (lastEq / startBal - 1) * 100);
+    if (curKey !== null && startEq > 0) {
+      monthlyPct.set(curKey, (lastEq / startEq - 1) * 100);
+    }
   }
 
   let maxConsecW = 0, maxConsecL = 0, curW = 0, curL = 0;

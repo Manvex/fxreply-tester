@@ -181,13 +181,13 @@ window.TA = TA;
 // Indicator registry for chart overlay UI
 // ---------------------------------------------------------------------------
 window.INDICATOR_DEFS = [
-  { id: 'sma20', name: 'SMA 20', pane: 'main', calc: (c) => [{ label: 'SMA 20', color: '#ffb74d', data: TA.sma(c.map(x => x.close), 20) }] },
-  { id: 'sma50', name: 'SMA 50', pane: 'main', calc: (c) => [{ label: 'SMA 50', color: '#4fc3f7', data: TA.sma(c.map(x => x.close), 50) }] },
-  { id: 'sma200', name: 'SMA 200', pane: 'main', calc: (c) => [{ label: 'SMA 200', color: '#ba68c8', data: TA.sma(c.map(x => x.close), 200) }] },
-  { id: 'ema20', name: 'EMA 20', pane: 'main', calc: (c) => [{ label: 'EMA 20', color: '#fff176', data: TA.ema(c.map(x => x.close), 20) }] },
-  { id: 'ema50', name: 'EMA 50', pane: 'main', calc: (c) => [{ label: 'EMA 50', color: '#f06292', data: TA.ema(c.map(x => x.close), 50) }] },
+  { id: 'sma20', color: '#ffb74d', desc: 'Simple moving average of the last 20 closes. Fast trend reference.', name: 'SMA 20', pane: 'main', calc: (c) => [{ label: 'SMA 20', color: '#ffb74d', data: TA.sma(c.map(x => x.close), 20) }] },
+  { id: 'sma50', color: '#4fc3f7', desc: 'Simple moving average of 50 closes. Medium-term trend filter.', name: 'SMA 50', pane: 'main', calc: (c) => [{ label: 'SMA 50', color: '#4fc3f7', data: TA.sma(c.map(x => x.close), 50) }] },
+  { id: 'sma200', color: '#ba68c8', desc: 'Simple moving average of 200 closes. The classic long-term bull/bear line.', name: 'SMA 200', pane: 'main', calc: (c) => [{ label: 'SMA 200', color: '#ba68c8', data: TA.sma(c.map(x => x.close), 200) }] },
+  { id: 'ema20', color: '#fff176', desc: 'Exponential moving average, 20 periods. Reacts faster than SMA.', name: 'EMA 20', pane: 'main', calc: (c) => [{ label: 'EMA 20', color: '#fff176', data: TA.ema(c.map(x => x.close), 20) }] },
+  { id: 'ema50', color: '#f06292', desc: 'Exponential moving average, 50 periods. Common trend filter for pullback entries.', name: 'EMA 50', pane: 'main', calc: (c) => [{ label: 'EMA 50', color: '#f06292', data: TA.ema(c.map(x => x.close), 50) }] },
   {
-    id: 'bb', name: 'Bollinger Bands (20, 2)', pane: 'main', calc: (c) => {
+    id: 'bb', color: '#90caf9', desc: 'Bollinger Bands: 20-period mean ±2 standard deviations. Bands narrow before expansion.', name: 'Bollinger Bands (20, 2)', pane: 'main', calc: (c) => {
       const b = TA.bollinger(c.map(x => x.close), 20, 2);
       return [
         { label: 'BB Upper', color: '#787878', data: b.upper },
@@ -196,10 +196,10 @@ window.INDICATOR_DEFS = [
       ];
     }
   },
-  { id: 'vwap', name: 'VWAP (session)', pane: 'main', calc: (c) => [{ label: 'VWAP', color: '#26c6da', data: TA.vwap(c) }] },
-  { id: 'rsi', name: 'RSI 14', pane: 'sub', range: [0, 100], calc: (c) => [{ label: 'RSI 14', color: '#ce93d8', data: TA.rsi(c.map(x => x.close), 14) }] },
+  { id: 'vwap', color: '#26c6da', desc: 'Volume-weighted average price, reset each session. Intraday fair-value line.', name: 'VWAP (session)', pane: 'main', calc: (c) => [{ label: 'VWAP', color: '#26c6da', data: TA.vwap(c) }] },
+  { id: 'rsi', color: '#ce93d8', desc: 'Relative Strength Index, 14 periods. Above 70 = stretched up, below 30 = stretched down.', name: 'RSI 14', pane: 'sub', range: [0, 100], calc: (c) => [{ label: 'RSI 14', color: '#ce93d8', data: TA.rsi(c.map(x => x.close), 14) }] },
   {
-    id: 'macd', name: 'MACD (12, 26, 9)', pane: 'sub', calc: (c) => {
+    id: 'macd', color: '#4dd4c0', desc: 'MACD 12/26 with 9-period signal and histogram. Momentum and trend-change tool.', name: 'MACD (12, 26, 9)', pane: 'sub', calc: (c) => {
       const m = TA.macd(c.map(x => x.close));
       return [
         { label: 'MACD', color: '#4fc3f7', data: m.line },
@@ -209,7 +209,7 @@ window.INDICATOR_DEFS = [
     }
   },
   {
-    id: 'stoch', name: 'Stochastic (14, 3, 3)', pane: 'sub', range: [0, 100], calc: (c) => {
+    id: 'stoch', color: '#ffd54f', desc: 'Stochastic 14/3/3. Where price sits inside its recent range.', name: 'Stochastic (14, 3, 3)', pane: 'sub', range: [0, 100], calc: (c) => {
       const s = TA.stochastic(c);
       return [
         { label: '%K', color: '#4fc3f7', data: s.k },
@@ -217,5 +217,5 @@ window.INDICATOR_DEFS = [
       ];
     }
   },
-  { id: 'atr', name: 'ATR 14', pane: 'sub', calc: (c) => [{ label: 'ATR 14', color: '#a5d6a7', data: TA.atr(c, 14) }] },
+  { id: 'atr', color: '#a5d6a7', desc: 'Average True Range, 14 periods. Volatility in price units — used for stop sizing.', name: 'ATR 14', pane: 'sub', calc: (c) => [{ label: 'ATR 14', color: '#a5d6a7', data: TA.atr(c, 14) }] },
 ];

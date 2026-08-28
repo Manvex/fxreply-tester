@@ -1,5 +1,5 @@
 // ===========================================================================
-// Chart manager — TradingView Lightweight Charts, black/white theme,
+// Chart manager — TradingView Lightweight Charts, dark surface theme,
 // green/red candles, indicator overlays + sub panes, trade markers.
 // ===========================================================================
 const ChartMgr = (() => {
@@ -13,15 +13,16 @@ const ChartMgr = (() => {
   let symInfo = null;
 
   const THEME = {
-    layout: { background: { type: 'solid', color: '#000000' }, textColor: '#aaaaaa', fontSize: 11 },
-    grid: { vertLines: { color: '#111111' }, horzLines: { color: '#111111' } },
+    layout: { background: { type: 'solid', color: '#0b0d10' }, textColor: '#8b949e', fontSize: 11,
+              fontFamily: "'Inter', -apple-system, sans-serif" },
+    grid: { vertLines: { color: 'rgba(255,255,255,.035)' }, horzLines: { color: 'rgba(255,255,255,.035)' } },
     crosshair: {
       mode: 0,
-      vertLine: { color: '#555555', width: 1, style: 3, labelBackgroundColor: '#222222' },
-      horzLine: { color: '#555555', width: 1, style: 3, labelBackgroundColor: '#222222' },
+      vertLine: { color: 'rgba(77,212,192,.5)', width: 1, style: 3, labelBackgroundColor: '#1c2128' },
+      horzLine: { color: 'rgba(77,212,192,.5)', width: 1, style: 3, labelBackgroundColor: '#1c2128' },
     },
-    rightPriceScale: { borderColor: '#222222' },
-    timeScale: { borderColor: '#222222', timeVisible: true, secondsVisible: false, rightOffset: 6 },
+    rightPriceScale: { borderColor: 'rgba(255,255,255,.07)' },
+    timeScale: { borderColor: 'rgba(255,255,255,.07)', timeVisible: true, secondsVisible: false, rightOffset: 6 },
   };
 
   function init(container) {
@@ -30,9 +31,9 @@ const ChartMgr = (() => {
       autoSize: true,
     });
     candleSeries = chart.addCandlestickSeries({
-      upColor: '#26a69a', downColor: '#ef5350',
-      wickUpColor: '#26a69a', wickDownColor: '#ef5350',
-      borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+      upColor: '#26d0a5', downColor: '#f2615c',
+      wickUpColor: '#26d0a5', wickDownColor: '#f2615c',
+      borderUpColor: '#26d0a5', borderDownColor: '#f2615c',
     });
     volumeSeries = chart.addHistogramSeries({
       priceFormat: { type: 'volume' },

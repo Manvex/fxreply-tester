@@ -1,47 +1,59 @@
 // ===========================================================================
-// Bar Replay (fxreplay-style): pick a start date, step/play through bars,
-// trade manually with the trade panel; broker + prop rules apply live.
+// Bar Replay — pick a start date, step or play through bars one at a time and
+// trade manually against the same broker model the backtester uses.
+// Step-back is a real rewind: the broker state is snapshotted every bar.
 // ===========================================================================
 const Replay = (() => {
   let active = false;
   let all = [];          // full candle array
   let idx = 0;           // index of last visible bar
+  let startIdx = 0;      // where the session began
   let timer = null;
   let broker = null;
   let markers = [];
+  let snaps = [];        // [{idx, state, markerCount}] — for true step-back
+  const MAX_SNAPS = 4000;
 
   const $ = (s) => document.querySelector(s);
 
   function isActive() { return active; }
+  function isPlaying() { return timer !== null; }
 
+  // ---- lifecycle --------------------------------------------------------
   function start(fromTime) {
     all = ChartMgr.candles.slice();
-    if (all.length < 10) return false;
-    idx = 0;
+    if (all.length < 10) {
+      window.App.toast('Load a chart with more history before starting replay', 'err');
+      return false;
+    }
     if (fromTime) {
       idx = all.findIndex(c => c.time >= fromTime);
-      if (idx < 0) idx = 0;
+      if (idx < 0) idx = Math.max(0, Math.floor(all.length * 0.3));
     } else {
       idx = Math.max(0, Math.floor(all.length * 0.3));
     }
+    if (idx < 5) idx = 5;
+    startIdx = idx;
     active = true;
     markers = [];
+    snaps = [];
     resetBroker();
     render();
     $('#replay-bar').classList.remove('hidden');
-    $('#trade-panel').classList.remove('hidden');
+    $('#ticket').classList.remove('hidden');
     updateTimeLabel();
+    updateProgress();
+    window.App.renderPositions(broker, all[idx]);
     return true;
   }
 
   function resetBroker() {
     const s = window.App.manualSettings;
-    const prop = propFromMode(s.propMode);
     broker = new Broker({
       balance: s.balance, leverage: s.leverage, spread: s.spread,
-      commission: s.commission, symInfo: window.App.currentSymbolInfo, prop,
+      commission: s.commission, symInfo: window.App.currentSymbolInfo,
+      prop: propFromMode(s.propMode),
     });
-    // seed equity up to current idx
     window.App.updateAccountUI(broker, all[idx]);
   }
 
@@ -54,6 +66,19 @@ const Replay = (() => {
     }
   }
 
+  function exit() {
+    pause();
+    active = false;
+    snaps = [];
+    $('#replay-bar').classList.add('hidden');
+    $('#ticket').classList.add('hidden');
+    ChartMgr.clearPriceLines();
+    ChartMgr.setData(all, window.App.currentSymbolInfo);
+    ChartMgr.setMarkers([]);
+    window.App.resetAccountUI();
+  }
+
+  // ---- rendering --------------------------------------------------------
   function render() {
     const visible = all.slice(0, idx + 1);
     ChartMgr.setData(visible, window.App.currentSymbolInfo);
@@ -61,11 +86,45 @@ const Replay = (() => {
     drawPositionLines();
   }
 
+  function refreshIndicatorsVisible() { render(); }
+
+  function updateProgress() {
+    const fill = $('#rp-progress-fill');
+    if (!fill || !all.length) return;
+    fill.style.width = ((idx + 1) / all.length * 100).toFixed(2) + '%';
+  }
+
+  function updateTimeLabel() {
+    const bar = all[idx];
+    if (!bar) return;
+    const d = new Date(bar.time * 1000);
+    const lbl = $('#rp-time');
+    if (lbl) lbl.textContent = d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+
+    const dg = window.App.currentSymbolInfo.digits;
+    const bid = bar.close;
+    const ask = bid + (broker ? broker.spreadPrice : 0);
+    const eb = $('#tk-bid'), ea = $('#tk-ask');
+    if (eb) eb.textContent = bid.toFixed(dg);
+    if (ea) ea.textContent = ask.toFixed(dg);
+    window.App.updateTicketRisk();
+  }
+
+  // ---- stepping ---------------------------------------------------------
   function stepForward() {
-    if (!active || idx >= all.length - 1) { pause(); return; }
+    if (!active) return;
+    if (idx >= all.length - 1) {
+      pause();
+      window.App.toast('End of the loaded history reached', 'warn');
+      return;
+    }
+
+    // snapshot BEFORE advancing so step-back lands on the current state
+    snaps.push({ idx, state: broker.snapshot(), markerCount: markers.length });
+    if (snaps.length > MAX_SNAPS) snaps.shift();
+
     idx++;
     const bar = all[idx];
-    // broker processes the new bar
     const closedBefore = broker.closed.length;
     broker.onBar(bar);
     if (broker.closed.length > closedBefore) {
@@ -75,86 +134,106 @@ const Replay = (() => {
     ChartMgr.setMarkers(markers);
     drawPositionLines();
     updateTimeLabel();
+    updateProgress();
     window.App.updateAccountUI(broker, bar);
     window.App.renderPositions(broker, bar);
-    // prop fail check
+
     if (broker.propState && broker.propState.status !== 'active') {
       pause();
-      if (broker.propState.status.startsWith('failed')) {
+      const st = broker.propState.status;
+      if (st.startsWith('failed')) {
         broker.closeAll(bar, 'prop_fail');
         window.App.renderPositions(broker, bar);
+        window.App.updateAccountUI(broker, bar);
+        window.App.toast(st === 'failed_daily'
+          ? 'Rule breach — daily loss limit hit. All positions closed.'
+          : 'Rule breach — max drawdown hit. All positions closed.', 'err');
+      } else if (st === 'passed') {
+        window.App.toast('Profit target reached — challenge passed', 'ok');
       }
     }
-    // indicators need full recompute occasionally — cheap approach: every 20 bars
-    if (idx % 20 === 0) refreshIndicatorsVisible();
-  }
 
-  function refreshIndicatorsVisible() {
-    // recompute indicators on visible slice
-    const visible = all.slice(0, idx + 1);
-    // ChartMgr indicators are computed from ChartMgr.candles — update quietly
-    ChartMgr.setData(visible, window.App.currentSymbolInfo);
-    ChartMgr.setMarkers(markers);
-    drawPositionLines();
+    if (idx % 25 === 0) refreshIndicatorsVisible();
   }
 
   function stepBack() {
-    if (!active || idx <= 1) return;
+    if (!active) return;
     pause();
-    idx--;
-    // NOTE: broker state can't rewind — stepping back is visual only
+    const s = snaps.pop();
+    if (!s) { window.App.toast('Already at the start of this replay session', 'warn'); return; }
+    idx = s.idx;
+    broker.restore(s.state);
+    markers.length = s.markerCount;
     render();
     updateTimeLabel();
+    updateProgress();
+    window.App.updateAccountUI(broker, all[idx]);
+    window.App.renderPositions(broker, all[idx]);
   }
 
   function play() {
+    if (!active) return;
     if (timer) { pause(); return; }
-    const speed = parseInt($('#rp-speed').value);
-    $('#rp-play i').className = 'fa-solid fa-pause';
+    const speed = parseInt($('#rp-speed').value) || 1000;
+    const ico = $('#rp-play i');
+    if (ico) ico.className = 'fa-solid fa-pause';
+    $('#rp-play').classList.add('playing');
     timer = setInterval(stepForward, speed);
   }
 
   function pause() {
     if (timer) { clearInterval(timer); timer = null; }
-    const el = $('#rp-play i'); if (el) el.className = 'fa-solid fa-play';
+    const ico = $('#rp-play i');
+    if (ico) ico.className = 'fa-solid fa-play';
+    const btn = $('#rp-play');
+    if (btn) btn.classList.remove('playing');
   }
 
-  function exit() {
-    pause();
-    active = false;
-    $('#replay-bar').classList.add('hidden');
-    $('#trade-panel').classList.add('hidden');
-    ChartMgr.clearPriceLines();
-    ChartMgr.setData(all, window.App.currentSymbolInfo);
-    ChartMgr.setMarkers([]);
-    window.App.resetAccountUI();
+  function gotoDate(dateStr) {
+    if (!dateStr) return;
+    const parts = dateStr.split('-').map(Number);
+    const t = Date.UTC(parts[0], (parts[1] || 1) - 1, parts[2] || 1) / 1000;
+    if (active) {
+      pause();
+      const found = all.findIndex(c => c.time >= t);
+      if (found < 0) { window.App.toast('That date is outside the loaded range', 'err'); return; }
+      idx = Math.max(5, found);
+      startIdx = idx;
+      markers = [];
+      snaps = [];
+      resetBroker();
+      render();
+      updateTimeLabel();
+      updateProgress();
+      window.App.renderPositions(broker, all[idx]);
+    } else {
+      start(t);
+    }
   }
 
-  function updateTimeLabel() {
-    const t = all[idx]?.time;
-    if (!t) return;
-    const d = new Date(t * 1000);
-    $('#rp-time').textContent = d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
-    // update bid/ask in trade panel
-    const bid = all[idx].close;
-    const ask = bid + broker.spreadPrice;
-    const dg = window.App.currentSymbolInfo.digits;
-    $('#tp-bid').textContent = bid.toFixed(dg);
-    $('#tp-ask').textContent = ask.toFixed(dg);
-  }
-
-  // ---------------- manual trading ----------------
+  // ---- manual trading ---------------------------------------------------
   function manualOrder(dir) {
-    if (!active) return;
-    const lots = parseFloat($('#tp-size').value) || 1;
-    const sl = parseFloat($('#tp-sl').value) || null;
-    const tp = parseFloat($('#tp-tp').value) || null;
+    if (!active) { window.App.toast('Start replay first — manual orders need a moving clock', 'warn'); return; }
+    const lots = parseFloat($('#tk-size').value) || 1;
+    const sl = parseFloat($('#tk-sl').value) || null;
+    const tp = parseFloat($('#tk-tp').value) || null;
     const bar = all[idx];
+
+    // sanity-check stop placement so the user gets a reason, not a silent no-op
+    const px = dir > 0 ? bar.close + broker.spreadPrice : bar.close;
+    if (sl !== null && ((dir > 0 && sl >= px) || (dir < 0 && sl <= px))) {
+      window.App.toast(`Stop loss must be ${dir > 0 ? 'below' : 'above'} the entry price`, 'err'); return;
+    }
+    if (tp !== null && ((dir > 0 && tp <= px) || (dir < 0 && tp >= px))) {
+      window.App.toast(`Take profit must be ${dir > 0 ? 'above' : 'below'} the entry price`, 'err'); return;
+    }
+
     const pos = broker.open(dir, lots, bar, sl, tp, 'manual');
-    if (!pos) { window.App.toast('Order rejected: not enough free margin'); return; }
+    if (!pos) { window.App.toast('Order rejected — not enough free margin for that size', 'err'); return; }
+
     markers.push({
       time: bar.time, position: dir > 0 ? 'belowBar' : 'aboveBar',
-      color: dir > 0 ? '#26a69a' : '#ef5350',
+      color: dir > 0 ? '#26d0a5' : '#f2615c',
       shape: dir > 0 ? 'arrowUp' : 'arrowDown',
       text: (dir > 0 ? 'BUY ' : 'SELL ') + lots,
     });
@@ -162,22 +241,43 @@ const Replay = (() => {
     drawPositionLines();
     window.App.updateAccountUI(broker, bar);
     window.App.renderPositions(broker, bar);
+    window.App.toast(`${dir > 0 ? 'Bought' : 'Sold'} ${lots} lot${lots === 1 ? '' : 's'} at ${px.toFixed(window.App.currentSymbolInfo.digits)}`, 'ok');
   }
 
   function addCloseMarker(tr) {
+    const tag = tr.reason === 'sl' ? 'SL' : tr.reason === 'tp' ? 'TP'
+      : tr.reason === 'margin_call' ? 'MC' : tr.reason === 'prop_fail' ? '!' : 'X';
     markers.push({
       time: tr.closeTime, position: tr.dir > 0 ? 'aboveBar' : 'belowBar',
-      color: tr.pnl >= 0 ? '#26a69a' : '#ef5350',
+      color: tr.pnl >= 0 ? '#26d0a5' : '#f2615c',
       shape: 'circle',
-      text: (tr.reason === 'sl' ? 'SL' : tr.reason === 'tp' ? 'TP' : 'X') + ' ' + (tr.pnl >= 0 ? '+' : '') + tr.pnl.toFixed(0),
+      text: tag + ' ' + (tr.pnl >= 0 ? '+' : '') + tr.pnl.toFixed(0),
     });
   }
 
   function closeAllManual() {
-    if (!active) return;
+    if (!active || !broker.positions.length) { window.App.toast('No open positions', 'warn'); return; }
     const bar = all[idx];
     const before = broker.closed.length;
     broker.closeAll(bar, 'manual');
+    let pnl = 0;
+    for (let i = before; i < broker.closed.length; i++) { addCloseMarker(broker.closed[i]); pnl += broker.closed[i].pnl; }
+    ChartMgr.setMarkers(markers);
+    drawPositionLines();
+    window.App.updateAccountUI(broker, bar);
+    window.App.renderPositions(broker, bar);
+    window.App.toast(`Closed ${broker.closed.length - before} position(s) for ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`,
+      pnl >= 0 ? 'ok' : 'warn');
+  }
+
+  function closeOne(id) {
+    if (!active) return;
+    const bar = all[idx];
+    const p = broker.positions.find(x => x.id === id);
+    if (!p) return;
+    const before = broker.closed.length;
+    const bid = bar.close, ask = bid + broker.spreadPrice;
+    broker.close(p, p.dir > 0 ? bid : ask, bar.time, 'manual');
     for (let i = before; i < broker.closed.length; i++) addCloseMarker(broker.closed[i]);
     ChartMgr.setMarkers(markers);
     drawPositionLines();
@@ -189,23 +289,20 @@ const Replay = (() => {
     ChartMgr.clearPriceLines();
     if (!broker) return;
     for (const p of broker.positions) {
-      ChartMgr.addPriceLine(p.entry, p.dir > 0 ? '#26a69a' : '#ef5350', (p.dir > 0 ? 'LONG ' : 'SHORT ') + p.lots, 0);
-      if (p.sl) ChartMgr.addPriceLine(p.sl, '#ef5350', 'SL', 2);
-      if (p.tp) ChartMgr.addPriceLine(p.tp, '#26a69a', 'TP', 2);
+      ChartMgr.addPriceLine(p.entry, p.dir > 0 ? '#26d0a5' : '#f2615c',
+        (p.dir > 0 ? 'LONG ' : 'SHORT ') + p.lots, 0);
+      if (p.sl) ChartMgr.addPriceLine(p.sl, '#f2615c', 'SL', 2);
+      if (p.tp) ChartMgr.addPriceLine(p.tp, '#26d0a5', 'TP', 2);
     }
   }
 
-  function gotoDate(dateStr) {
-    const t = Date.UTC(...dateStr.split('-').map((x, i) => i === 1 ? +x - 1 : +x)) / 1000;
-    if (active) { pause(); idx = Math.max(1, all.findIndex(c => c.time >= t)); resetBroker(); markers = []; render(); updateTimeLabel(); }
-    else start(t);
-  }
-
   return {
-    start, exit, stepForward, stepBack, play, pause, isActive,
-    manualOrder, closeAllManual, gotoDate,
-    get broker() { return broker; },
-    get currentBar() { return all[idx]; },
+    start, exit, stepForward, stepBack, play, pause,
+    isActive, isPlaying,
+    manualOrder, closeAllManual, closeOne, gotoDate,
+    broker: () => broker,
+    currentBar: () => all[idx],
+    progress: () => (all.length ? (idx + 1) / all.length : 0),
   };
 })();
 

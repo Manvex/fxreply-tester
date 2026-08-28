@@ -1,84 +1,122 @@
-# BlackTick — TradingView-style Backtesting Terminal
+# BlackTick — Strategy Backtesting on Real Market Data
 
-Un terminal de backtesting în browser care combină **TradingView** (chart, unelte de desen, indicatori) cu **FXReplay** (bar replay + trading manual simulat), pe **date istorice reale**:
+## Project Overview
+- **Name**: BlackTick
+- **Goal**: A browser-based backtesting platform for trading strategies, running against
+  real historical market data. Strictly a backtesting tool — there is no live trading,
+  no broker connection and no account to create.
+- **Main features**:
+  - Guided dashboard + 4-step wizard that takes a beginner from "pick a market" to a
+    finished backtest report without needing to understand the terminal first
+  - Real market data: Dukascopy tick-derived candles (forex, indices, stocks, commodities)
+    and Binance klines (crypto). No synthetic or generated prices anywhere.
+  - 13 documented strategies across JavaScript, Pine Script and Python, each with its
+    entry / exit / sizing rules spelled out in plain English
+  - Realistic broker model: spread, commission, leverage, margin, hedged positions,
+    intrabar stop-loss / take-profit, margin call and stop-out
+  - Prop-firm rule engine (FTMO-style presets + custom) evaluated on intrabar worst-case
+    equity, so it is stricter than a bar-close check
+  - Bar replay with manual order ticket and true step-back (broker state rewinds too)
+  - Full report: KPI cards, equity curve, performance table, trade blotter with CSV export,
+    monthly heat grid, prop-firm verdict with rule-usage bars
+  - Built-in manual, data-sources documentation and FAQ — all in English
 
-- **Dukascopy** (bi5/LZMA, decodat client-side) — Forex, Indici (US30, NAS100, SPX500, GER40…), Stocks (AAPL, NVDA, TSLA…), Commodities (XAUUSD, USOIL…)
-- **Binance** (klines REST) — Crypto (BTCUSDT, ETHUSDT, SOLUSDT…)
+## URLs
+- **Local dev**: http://localhost:3000
+- **Sandbox preview**: https://3000-ilhy1mv9u12j9drpexji6-3c7ff1b5.sandbox.novita.ai
+- **Production**: not deployed yet
 
-**Fără bază de date, fără conturi** — totul rulează în browser; desenele se salvează în `localStorage`.
+### Routes
+| Path | Purpose |
+|---|---|
+| `/` | Dashboard — home, wizard, strategy library, markets, data sources, manual, FAQ |
+| `/terminal` | Chart workspace — charting, drawing tools, strategy editor, backtest report, replay |
+| `/terminal?run=1` | Terminal opening with the wizard's configuration pre-applied |
+| `/api/duka/<SYM>/<YYYY>[/<MM>[/<DD>]]/BID_candles_<min_1\|hour_1\|day_1>.bi5` | Dukascopy proxy, returns raw LZMA `.bi5` bytes |
+| `/api/binance/klines?symbol=&interval=&limit=` | Binance klines proxy |
+| `/api/health` | Health check |
 
-## Funcționalități
+## Data Architecture
+- **Sources** (both real, both fetched live per backtest):
+  - **Dukascopy** — `.bi5` files: LZMA-compressed, 24 bytes per candle, big-endian
+    `u32 time_offset, u32 open, u32 close, u32 low, u32 high, f32 volume`. Decoded in the
+    browser. Prices are BID. M1 = one file per day, H1 = per month, D1 = per year.
+  - **Binance** — `data-api.binance.vision` REST klines (fallback `api.binance.com`).
+- **Verification**: the decoder was cross-checked against known 2024 prices for EURUSD,
+  USDJPY, XAUUSD, SPX500, NAS100, AAPL and USOIL. Method and results are documented on
+  the **Data Sources** page, including a runnable Python snippet so anyone can re-verify.
+- **Storage services**: none. The platform is stateless — data is fetched on demand and
+  discarded. Only UI preferences, drawings and the wizard hand-off live in `localStorage`.
+- **Data flow**: browser → Cloudflare Worker proxy (caches 24h at the edge) → upstream
+  feed → LZMA decode + aggregation in the browser → backtest engine → report.
 
-### 📈 Chart (TradingView Lightweight Charts)
-- Candles verde/roșu pe temă neagră/albă, volum, 8 timeframes (1m → 1W)
-- Legend OHLC live la crosshair, watchlist, căutare simboluri pe categorii
-- **Indicatori**: SMA 20/50/200, EMA 20/50, Bollinger, VWAP, RSI, MACD, Stochastic, ATR
-
-### ✏️ Unelte de desen (canvas overlay ancorat în timp/preț)
-Trend line, Ray, Linie orizontală/verticală, Dreptunghi, **Fib Retracement**, Brush, Text, **Ruler** (măsurare pips/%/bare), **Long/Short Position** (RR vizual), magnet (snap la OHLC), ștergere selecție/tot. Persistență per simbol+TF.
-
-### 🤖 Strategy Tester (boti / strategii / indicatori)
-- **3 limbaje**: **JavaScript**, **Pine Script v5 (subset)** — parser+interpretor propriu (`ta.*`, `strategy.entry/exit/close`, `if/else`, serii `[n]`, `var`, ternar, `input.*`, `math.*`), **Python** real în browser via **Pyodide**
-- Setări: **balanță inițială, leverage (1:1 → 1:500), interval de date (start/end), spread, comision**
-- Rezultate: Overview + **equity curve**, Performance (PF, Sharpe, DD, win rate, consecutive W/L…), **List of Trades**, **Monthly breakdown** (grid an × lună, % și $ pe fiecare lună), **Prop Firm report**
-
-### 🏦 Simulare Prop Firm (backtest + manual)
-- Presets FTMO-style Phase 1 / Phase 2 / Funded + **Custom** (target %, daily loss %, max DD %, static/trailing)
-- Verificare **intrabar worst-case** a daily loss și max drawdown, jurnal zilnic, status PASSED / FAILED (daily / max DD) / ACTIVE
-
-### ⏪ Bar Replay (stil FXReplay)
-- Go to date, step forward/back, play cu viteze 0.5x → 30x
-- **Trading manual**: BUY/SELL cu lots, SL, TP, close all; broker simulat cu leverage, margin, stop-out 50%, spread, comisioane; markere pe chart + linii de poziție; panou cont live (balance/equity/margin/PnL) + regulile prop firm live
-
-## Rulare locală
-
-```bash
-npm install
-npm run build
-npx wrangler pages dev dist --ip 0.0.0.0 --port 3000
-```
-
-## Arhitectură
-
-```
-src/index.tsx            Hono backend (Cloudflare Pages Functions)
-  /api/duka/*            proxy Dukascopy .bi5 (retry + cache)
-  /api/binance/klines    proxy Binance (mirror data-api.binance.vision)
-public/static/js/
-  symbols.js             univers simboluri + factori zecimali Dukascopy
-  data.js                fetch bi5 + LZMA decode + agregare timeframe
-  indicators.js          bibliotecă TA
-  chart.js               Lightweight Charts manager
-  drawings.js            unelte desen pe canvas overlay
-  engine.js              Broker simulat + statistici + reguli prop firm
-  pine.js                interpretor Pine Script v5 (subset)
-  strategy.js            runner JS / Pine / Python (Pyodide) + exemple
-  replay.js              bar replay + trading manual
-  backtest-ui.js         UI rezultate backtest
-  app.js                 bootstrap & wiring
-```
-
-### Detalii date Dukascopy
-- Fișiere `.bi5` = LZMA, 24 bytes/candelă: `time_offset(u32) open close low high (u32) volume(f32)`, big-endian
-- Factori zecimali: forex 1e5 (JPY: 1e3), indici/stocks/commodities 1e3
-- M1: fișier pe zi · H1: fișier pe lună · D1: fișier pe an (luna/anul curent → fallback la granularitate mai fină + agregare)
-- Prețurile sunt BID; ask = bid + spread configurabil
-
-### Model broker
-- Fill la close-ul barei de semnal, spread aplicat pe intrare/ieșire după direcție
-- SL/TP verificate intrabar (SL prioritar — conservator), margin call/stop-out la 50%
-- PnL în USD pe `lotUnits` per instrument (forex 100k/lot, indici 1/lot, stocks 100/lot…)
-
-## Limitări cunoscute
-- Pine Script = subset v5 (fără librării externe, `request.security`, arrays/matrices)
-- Python: prima rulare descarcă Pyodide (~15 MB)
-- Dukascopy publică datele cu ~1-2 zile întârziere; rate-limit la burst-uri (client-ul face retry cu backoff)
-- Sharpe este aproximat din randamente per-bară
+## User Guide
+1. Open `/` — the dashboard. The home page explains the 4 steps.
+2. Click **Start a backtest** to open the wizard:
+   - **Step 1** pick a market and timeframe
+   - **Step 2** pick a strategy (each card shows its exact rules)
+   - **Step 3** set the date range, balance, leverage, spread, commission and optionally
+     a prop-firm rule set
+   - **Step 4** review and launch — this jumps to the terminal and runs the backtest
+3. Read the report in the bottom dock: **Overview → Performance → Trades → Monthly → Prop Firm**.
+4. To iterate, open the **Strategy Editor** tab, change the code, and hit **Run Backtest**.
+5. To trade the chart by hand, click **Replay**, choose a start date, and step through bars
+   with the order ticket.
+6. The **Manual** and **FAQ** pages on the dashboard explain the engine's fill rules,
+   metric definitions and common pitfalls.
 
 ## Tech Stack
-Hono + TypeScript (Cloudflare Pages) · TradingView Lightweight Charts · LZMA-JS · Pyodide · vanilla JS frontend
+- **Backend**: Hono 4 on Cloudflare Pages / Workers (proxy + page routes only)
+- **Build**: Vite 8 + `@hono/vite-build`, served locally by `wrangler pages dev` under PM2
+- **Charts**: TradingView Lightweight Charts 4.2.3
+- **Strategy runtimes**: native JS, a custom Pine Script v5 subset interpreter, Pyodide 0.26 (+numpy)
+- **Decompression**: LZMA-JS
+- **Styling**: hand-written CSS design-token system (no framework)
+
+## Project Structure
+```
+src/
+  index.tsx              Hono app: API proxies + page routes
+  pages/dashboard.ts     Dashboard markup
+  pages/terminal.ts      Terminal markup
+public/static/
+  css/theme.css          Design tokens + shared components
+  css/dashboard.css      Dashboard layout
+  css/terminal.css       Chart workspace layout
+  js/symbols.js          48 instruments with contract specs
+  js/data.js             Feed loading, .bi5 decoding, timeframe aggregation
+  js/indicators.js       TA library + indicator definitions
+  js/chart.js            Chart manager
+  js/drawings.js         Drawing tools
+  js/engine.js           Broker model + statistics
+  js/pine.js             Pine Script v5 subset interpreter
+  js/strategy.js         Strategy runner + ctx API (JS / Pine / Python)
+  js/strategies.js       13-strategy library
+  js/replay.js           Bar replay + manual trading
+  js/backtest-ui.js      Run flow + report rendering
+  js/app.js              Terminal controller
+  js/dashboard.js        Dashboard controller
+  js/docs-content.js     Manual, data-sources doc, FAQ content
+```
+
+## Development
+```bash
+npm run build                      # build to dist/
+pm2 start ecosystem.config.cjs     # serve on :3000
+pm2 logs webapp --nostream         # check logs
+curl http://localhost:3000/api/health
+```
+
+## Known Limitations
+- All timestamps are UTC; no exchange-local session handling
+- Intrabar order of high/low is unknown, so stops are assumed to fill before targets
+  (the conservative assumption)
+- No slippage, no swap/financing, no dividend adjustment on stock CFDs
+- One crypto venue (Binance) — crypto results are venue-specific
+- Cloudflare Workers free tier has a 10 ms CPU limit per request; all heavy computation
+  runs in the browser, which is why backtests are client-side
 
 ## Deployment
-- **Platform**: Cloudflare Pages (sandbox dev prin `wrangler pages dev`)
-- **Status**: ✅ Functional în sandbox
+- **Platform**: Cloudflare Pages
+- **Status**: ❌ Not yet deployed (runs locally in the sandbox)
 - **Last Updated**: 2026-08-28

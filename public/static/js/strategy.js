@@ -209,19 +209,53 @@ def bar(i, candles, ctx):
     },
   };
 
+  // ---------------- shared sizing / stop helpers ----------------
+  // Lots such that a `dist` adverse price move costs `pct` % of realised balance.
+  function riskLots(broker, pct, dist) {
+    const units = broker.symInfo?.lotUnits || 100000;
+    const d = Math.abs(Number(dist));
+    const p = Number(pct);
+    if (!isFinite(d) || d <= 0 || !isFinite(p) || p <= 0) return 0.01;
+    const riskCash = broker.balance * (p / 100);
+    const lossPerLot = d * units;
+    if (lossPerLot <= 0) return 0.01;
+    let lots = riskCash / lossPerLot;
+    lots = Math.floor(lots * 100) / 100;      // broker-style 0.01 lot step
+    if (!isFinite(lots) || lots < 0.01) lots = 0.01;
+    if (lots > 500) lots = 500;               // sanity cap
+    return lots;
+  }
+
+  // Modify SL / TP on every open position. null / undefined leaves the value alone.
+  function setStops(broker, sl, tp) {
+    let n = 0;
+    for (const p of broker.positions) {
+      if (sl !== null && sl !== undefined && isFinite(sl)) { p.sl = sl; n++; }
+      if (tp !== null && tp !== undefined && isFinite(tp)) { p.tp = tp; n++; }
+    }
+    return n;
+  }
+
   // ---------------- JS ctx factory ----------------
   function makeCtx(broker, candles, curBarRef) {
     const atr14 = TA.atr(candles, 14);
+    const bar = () => candles[curBarRef.i];
     return {
       ta: TA,
       atr14,
       broker,
-      buy: (lots, sl = null, tp = null) => broker.open(1, lots || 1, candles[curBarRef.i], sl, tp, 'strategy'),
-      sell: (lots, sl = null, tp = null) => broker.open(-1, lots || 1, candles[curBarRef.i], sl, tp, 'strategy'),
-      closeAll: () => broker.closeAll(candles[curBarRef.i], 'strategy'),
+      symInfo: broker.symInfo,
+      buy: (lots, sl = null, tp = null) => broker.open(1, lots || 1, bar(), sl, tp, 'strategy'),
+      sell: (lots, sl = null, tp = null) => broker.open(-1, lots || 1, bar(), sl, tp, 'strategy'),
+      closeAll: () => broker.closeAll(bar(), 'strategy'),
       position: () => broker.positions.reduce((s, p) => s + p.dir * p.lots, 0),
-      equity: () => broker.equity(candles[curBarRef.i].close),
+      equity: () => broker.equity(bar().close),
       balance: () => broker.balance,
+      openCount: () => broker.positions.length,
+      positions: () => broker.positions,
+      riskLots: (pct, dist) => riskLots(broker, pct, dist),
+      setStops: (sl = null, tp = null) => setStops(broker, sl, tp),
+      log: (...a) => { try { console.log('[strategy]', ...a); } catch (_) {} },
     };
   }
 
@@ -350,6 +384,10 @@ def bar(i, candles, ctx):
       position: () => broker.positions.reduce((s, p) => s + p.dir * p.lots, 0),
       equity: () => broker.equity(candles[curBar.i].close),
       balance: () => broker.balance,
+      open_count: () => broker.positions.length,
+      risk_lots: (pct, dist) => riskLots(broker, pct, dist),
+      set_stops: (sl, tp) => setStops(broker, sl ?? null, tp ?? null),
+      log: (msg) => { try { console.log('[strategy:py]', msg); } catch (_) {} },
     };
     py.globals.set('_js_ctx', bridge);
     py.globals.set('_candles_json', JSON.stringify(candles));
@@ -372,6 +410,14 @@ class _Ctx:
         return self._js.equity()
     def balance(self):
         return self._js.balance()
+    def open_count(self):
+        return self._js.open_count()
+    def risk_lots(self, pct, dist):
+        return self._js.risk_lots(float(pct), float(dist))
+    def set_stops(self, sl=None, tp=None):
+        return self._js.set_stops(sl, tp)
+    def log(self, *args):
+        return self._js.log(' '.join(str(a) for a in args))
 
 ctx = _Ctx(_js_ctx)
 candles = json.loads(_candles_json)
@@ -429,7 +475,7 @@ if _has_init:
     }
   }
 
-  return { run, validate, EXAMPLES };
+  return { run, validate, EXAMPLES, riskLots, setStops };
 })();
 
 window.StrategyRunner = StrategyRunner;
