@@ -6,3 +6,4 @@ dist/
 *.log
 .pm2/
 *.tar.gz
+*.bak
