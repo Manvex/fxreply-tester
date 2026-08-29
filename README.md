@@ -92,7 +92,8 @@ public/static/
   js/pine.js             Pine Script v5 subset interpreter
   js/strategy.js         Strategy runner + ctx API (JS / Pine / Python)
   js/strategies.js       13-strategy library
-  js/replay.js           Bar replay + manual trading
+  js/replay.js           Session engine (bar replay) + manual trading
+  js/trade-overlay.js    On-chart position visual: draggable SL/TP, live P/L
   js/backtest-ui.js      Run flow + report rendering
   js/app.js              Terminal controller
   js/dashboard.js        Dashboard controller
@@ -105,6 +106,53 @@ npm run build                      # build to dist/
 pm2 start ecosystem.config.cjs     # serve on :3000
 pm2 logs webapp --nostream         # check logs
 curl http://localhost:3000/api/health
+```
+
+## Backtesting Session (manual replay)
+
+Opened with the **Backtesting Session** button, or `R`.
+
+- The account you enter is frozen into the session at launch, persisted in
+  `localStorage`, and is the only source of truth for the broker. Changing the
+  default account while a session runs no longer disturbs it.
+- Playback uses a self-rescheduling timeout, so a slow frame drops a tick
+  instead of queueing several — bars advance exactly one per tick at any speed,
+  and play/pause stays responsive.
+- The chart appends one candle per step (indicators update incrementally), so
+  your zoom, pan and drawings survive the whole session.
+- Step-back is a true rewind: chart length, balance, open positions and
+  prop-firm state all restore from a snapshot.
+- Switching instrument or timeframe asks first instead of silently discarding
+  the session.
+
+### On-chart positions (TradingView / FXReplay style)
+
+`public/static/js/trade-overlay.js` draws each open position directly on the
+chart:
+
+| Element | Behaviour |
+|---|---|
+| Entry line + label | Side, size, live P/L in cash, pips and R multiple |
+| Red risk zone | Entry → stop loss, labelled with the cash at risk |
+| Green reward zone | Entry → take profit, labelled with the cash reward and R:R |
+| SL / TP handles | **Drag them** — the order is modified live |
+| `x` button | Closes that position at the current bar |
+| Pending preview | Shows the zones from the ticket *before* you click BUY / SELL |
+
+The order ticket adds crosshair "place on chart" buttons for SL and TP,
+0.25 / 0.5 / 1 / 2 % risk-based position sizing, and live reward:risk. The
+positions table gains per-trade **BE** (break-even) and **Close** buttons.
+
+## Tests
+
+`tests/session.test.mjs` drives a real Chromium against the local worker and
+asserts the session end-to-end — 74 checks covering candle stepping, zoom
+stability, play/pause, order placement, bracket dragging, step-back rewind,
+settings persistence and console cleanliness.
+
+```bash
+npm run build && pm2 restart webapp
+node tests/session.test.mjs
 ```
 
 ## Known Limitations

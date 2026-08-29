@@ -95,6 +95,7 @@ export const terminalHTML = `<!DOCTYPE html>
     <div id="chart-zone">
       <div id="chart-wrap">
         <div id="chart-container"></div>
+        <canvas id="trade-canvas"></canvas>
         <canvas id="draw-canvas"></canvas>
         <div id="chart-legend"></div>
 
@@ -111,58 +112,93 @@ export const terminalHTML = `<!DOCTYPE html>
           <button id="hint-close" data-tip="Hide tips"><i class="fa-solid fa-xmark"></i></button>
         </div>
 
-        <!-- Replay controls -->
+        <!-- Session playback controls -->
         <div id="replay-bar" class="hidden">
-          <button id="rp-back" data-tip="Step back one bar">  <i class="fa-solid fa-backward-step"></i></button>
-          <button id="rp-play" data-tip="Play / pause  (Space)"><i class="fa-solid fa-play"></i></button>
-          <button id="rp-fwd" data-tip="Step forward one bar (→)"><i class="fa-solid fa-forward-step"></i></button>
+          <div class="rp-transport">
+            <button id="rp-restart" data-tip="Restart this session from its first bar"><i class="fa-solid fa-rotate-left"></i></button>
+            <button id="rp-back" data-tip="Step back one bar  (←)"><i class="fa-solid fa-backward-step"></i></button>
+            <button id="rp-play" data-tip="Play  (Space)"><i class="fa-solid fa-play"></i></button>
+            <button id="rp-fwd" data-tip="Step forward one bar  (→)"><i class="fa-solid fa-forward-step"></i></button>
+            <button id="rp-skip" data-tip="Skip 10 bars forward"><i class="fa-solid fa-forward"></i></button>
+          </div>
+          <div class="rp-sep"></div>
           <select id="rp-speed" data-tip="Playback speed">
             <option value="2000">0.5&times;</option>
             <option value="1000" selected>1&times;</option>
             <option value="500">2&times;</option>
-            <option value="200">5&times;</option>
-            <option value="100">10&times;</option>
-            <option value="33">30&times;</option>
+            <option value="250">4&times;</option>
+            <option value="120">8&times;</option>
+            <option value="60">16&times;</option>
+            <option value="30">32&times;</option>
           </select>
-          <span id="rp-time">—</span>
-          <button class="rp-txt" id="rp-goto">Jump to date</button>
-          <button class="rp-txt danger" id="rp-exit">Exit</button>
+          <div class="rp-sep"></div>
+          <div class="rp-clock">
+            <b id="rp-time">—</b>
+            <small id="rp-count">0 / 0 bars</small>
+          </div>
+          <div class="rp-sep"></div>
+          <button class="rp-txt" id="rp-goto"><i class="fa-solid fa-calendar-day"></i> Jump</button>
+          <button class="rp-txt danger" id="rp-exit"><i class="fa-solid fa-stop"></i> End</button>
           <div id="rp-progress"><div id="rp-progress-fill"></div></div>
         </div>
 
         <!-- Manual order ticket -->
+        <button id="tk-reopen" class="hidden" data-tip="Show the order ticket"><i class="fa-solid fa-bolt"></i></button>
         <div id="ticket" class="hidden">
           <div class="tk-head">
-            <b><i class="fa-solid fa-bolt"></i> Manual Order</b>
-            <button id="tk-close"><i class="fa-solid fa-xmark"></i></button>
+            <b><i class="fa-solid fa-bolt"></i> Order Ticket</b>
+            <button id="tk-close" data-tip="Hide the ticket"><i class="fa-solid fa-xmark"></i></button>
           </div>
           <div class="tk-body">
             <div class="tk-quote">
-              <div class="tk-q bid"><span>Bid (sell)</span><b id="tk-bid">—</b></div>
-              <div class="tk-q ask"><span>Ask (buy)</span><b id="tk-ask">—</b></div>
+              <div class="tk-q bid"><span>Bid · sell</span><b id="tk-bid">—</b></div>
+              <div class="tk-q ask"><span>Ask · buy</span><b id="tk-ask">—</b></div>
             </div>
+
             <div class="tk-field">
               <label>Size <span>lots</span></label>
               <input id="tk-size" type="number" value="1" min="0.01" step="0.01">
             </div>
+
             <div class="tk-field">
-              <label>Stop loss <span>price · optional</span></label>
-              <input id="tk-sl" type="number" placeholder="e.g. 1.08200" step="any">
+              <label>Stop loss <span>price</span></label>
+              <div class="tk-input-row">
+                <input id="tk-sl" type="number" placeholder="—" step="any">
+                <button class="tk-pick" id="tk-pick-sl" data-tip="Click the chart to place the stop"><i class="fa-solid fa-crosshairs"></i></button>
+              </div>
             </div>
+
             <div class="tk-field">
-              <label>Take profit <span>price · optional</span></label>
-              <input id="tk-tp" type="number" placeholder="e.g. 1.09400" step="any">
+              <label>Take profit <span>price</span></label>
+              <div class="tk-input-row">
+                <input id="tk-tp" type="number" placeholder="—" step="any">
+                <button class="tk-pick" id="tk-pick-tp" data-tip="Click the chart to place the target"><i class="fa-solid fa-crosshairs"></i></button>
+              </div>
             </div>
+
+            <div class="tk-sizer">
+              <span>Risk</span>
+              <button class="tk-risk-btn" data-pct="0.25">0.25%</button>
+              <button class="tk-risk-btn" data-pct="0.5">0.5%</button>
+              <button class="tk-risk-btn" data-pct="1">1%</button>
+              <button class="tk-risk-btn" data-pct="2">2%</button>
+            </div>
+
             <div class="tk-btns">
-              <button class="btn btn-down" id="tk-sell">SELL</button>
-              <button class="btn btn-up" id="tk-buy">BUY</button>
+              <button class="btn btn-down" id="tk-sell">SELL <kbd>S</kbd></button>
+              <button class="btn btn-up" id="tk-buy">BUY <kbd>B</kbd></button>
             </div>
+
             <div class="tk-risk">
               <div><span>Margin needed</span><b id="tk-margin">—</b></div>
               <div><span>Risk if SL hit</span><b id="tk-risk-cash">—</b></div>
               <div><span>% of balance</span><b id="tk-risk-pct">—</b></div>
+              <div><span>Reward at TP</span><b id="tk-reward-cash">—</b></div>
+              <div><span>Reward : risk</span><b id="tk-rr">—</b></div>
             </div>
-            <button class="btn btn-outline btn-sm btn-block" id="tk-closeall">Close all positions</button>
+            <button class="btn btn-outline btn-sm btn-block" id="tk-closeall">
+              <i class="fa-solid fa-xmark"></i> Close all <kbd>C</kbd>
+            </button>
           </div>
         </div>
       </div>
@@ -223,15 +259,19 @@ export const terminalHTML = `<!DOCTYPE html>
           </div>
 
           <!-- ---- Positions ---- -->
-          <div class="dock-page" data-page="positions" style="padding:14px 16px;overflow:auto">
-            <div class="section-head" style="margin-bottom:10px">
-              <span class="eyebrow">Open positions</span>
+          <div class="dock-page" data-page="positions">
+            <div class="pos-scroll">
+              <div id="session-stats" class="hidden"></div>
+              <div class="section-head">
+                <span class="eyebrow">Open positions</span>
+                <span class="t-faint" style="font-size:11px">Drag the SL / TP lines on the chart to move them</span>
+              </div>
+              <div id="open-pos-host"></div>
+              <div class="section-head" style="margin-top:22px">
+                <span class="eyebrow">Closed trades</span>
+              </div>
+              <div id="closed-trades-host"></div>
             </div>
-            <div id="open-pos-host"></div>
-            <div class="section-head" style="margin:22px 0 10px">
-              <span class="eyebrow">Closed trades</span>
-            </div>
-            <div id="closed-trades-host"></div>
           </div>
 
           <!-- ---- News ---- -->
@@ -356,8 +396,8 @@ export const terminalHTML = `<!DOCTYPE html>
     <p>Everything in one place — pick a market, a start date and an account, then trade the chart bar by bar. No strategy required.</p></div>
     <button class="dialog-close"><i class="fa-solid fa-xmark"></i></button>
   </div>
-  <div class="dialog-body">
-    <div class="field" style="margin-bottom:14px">
+  <div class="dialog-body ss-body">
+    <div class="field">
       <label>Market</label>
       <div id="ss-sym-box">
         <div id="ss-sym-current">
@@ -406,9 +446,9 @@ export const terminalHTML = `<!DOCTYPE html>
       </div>
     </div>
 
-    <details id="ss-adv" style="margin-top:12px">
+    <details id="ss-adv">
       <summary>Costs &amp; prop-firm rules <span class="t-faint">(optional)</span></summary>
-      <div class="form-grid cols-2" style="margin-top:10px">
+      <div class="form-grid cols-2" style="margin-top:12px">
         <div class="field"><label>Spread (pips / points)</label><input id="ss-spread" type="number" value="0.5" step="0.1" min="0"></div>
         <div class="field"><label>Commission ($/lot/side)</label><input id="ss-commission" type="number" value="3.5" step="0.5" min="0"></div>
         <div class="field form-row-full"><label>Prop-firm rule set</label>
@@ -422,17 +462,23 @@ export const terminalHTML = `<!DOCTYPE html>
       </div>
     </details>
 
-    <div id="ss-note" class="callout" style="margin-top:14px">
+    <div id="ss-note" class="callout">
       <i class="fa-solid fa-circle-info"></i>
       <div id="ss-note-text">The session downloads real historical data from the start date forward. Lower timeframes cover a shorter window per session.</div>
     </div>
-    <div id="ss-progress" class="hidden" style="margin-top:14px">
+
+    <div id="ss-error" class="callout err-callout hidden">
+      <i class="fa-solid fa-circle-exclamation"></i>
+      <div id="ss-error-text"></div>
+    </div>
+
+    <div id="ss-progress" class="hidden">
       <div class="progress-label"><span id="ss-progress-text">Downloading market data…</span><b id="ss-progress-pct">0%</b></div>
       <div class="progress"><div class="progress-fill" id="ss-progress-fill"></div></div>
     </div>
   </div>
   <div class="dialog-foot">
-    <span class="foot-note">Shortcuts once running: <span class="kbd">→</span> next bar · <span class="kbd">←</span> back · <span class="kbd">Space</span> play</span>
+    <span class="foot-note">Once running: <span class="kbd">→</span> next bar · <span class="kbd">Space</span> play · <span class="kbd">B</span> buy · <span class="kbd">S</span> sell</span>
     <button class="btn dialog-close">Cancel</button>
     <button class="btn btn-primary" id="ss-start-btn"><i class="fa-solid fa-play"></i> Start session</button>
   </div>
@@ -536,13 +582,13 @@ export const terminalHTML = `<!DOCTYPE html>
 
 <div id="dlg-account" class="dialog hidden">
   <div class="dialog-head">
-    <div><h3><i class="fa-solid fa-sliders"></i> Manual trading account</h3>
-    <p>These settings apply to <b>Bar Replay</b> — the mode where you place trades by hand.</p></div>
+    <div><h3><i class="fa-solid fa-sliders"></i> Default trading account</h3>
+    <p>The account a <b>Backtesting Session</b> starts with. Saved in this browser and pre-filled into the session popup.</p></div>
     <button class="dialog-close"><i class="fa-solid fa-xmark"></i></button>
   </div>
   <div class="dialog-body">
     <div class="form-grid cols-2">
-      <div class="field"><label>Balance ($)</label><input id="am-balance" type="number" value="100000"></div>
+      <div class="field"><label>Balance ($)</label><input id="am-balance" type="number" value="100000" min="100" step="100"></div>
       <div class="field"><label>Leverage</label>
         <select id="am-leverage">
           <option value="1">1:1</option><option value="10">1:10</option><option value="30">1:30</option>
@@ -550,22 +596,28 @@ export const terminalHTML = `<!DOCTYPE html>
           <option value="200">1:200</option><option value="500">1:500</option>
         </select>
       </div>
-      <div class="field"><label>Spread (pips / points)</label><input id="am-spread" type="number" value="0.5" step="0.1"></div>
-      <div class="field"><label>Commission ($/lot/side)</label><input id="am-commission" type="number" value="3.5" step="0.5"></div>
+      <div class="field"><label>Spread (pips / points)</label><input id="am-spread" type="number" value="0.5" step="0.1" min="0"></div>
+      <div class="field"><label>Commission ($/lot/side)</label><input id="am-commission" type="number" value="3.5" step="0.5" min="0"></div>
       <div class="field form-row-full"><label>Prop-firm rule set</label>
         <select id="am-prop">
-          <option value="none">Off</option>
-          <option value="ftmo1">Evaluation Phase 1</option>
-          <option value="ftmo2">Evaluation Phase 2</option>
-          <option value="funded">Funded account</option>
+          <option value="none">Off — plain account</option>
+          <option value="ftmo1">Evaluation Phase 1 — target 10%, daily 5%, max 10%</option>
+          <option value="ftmo2">Evaluation Phase 2 — target 5%, daily 5%, max 10%</option>
+          <option value="funded">Funded account — no target, daily 5%, max 10%</option>
         </select>
       </div>
     </div>
+
+    <div id="am-live-note" class="callout hidden" style="margin-top:16px">
+      <i class="fa-solid fa-circle-info"></i>
+      <div>A session is running right now. It keeps the account it started with — these
+        numbers will apply to the <b>next</b> session you start.</div>
+    </div>
   </div>
   <div class="dialog-foot">
-    <span class="foot-note">Applying resets the replay account.</span>
+    <span class="foot-note">Nothing here touches a running session.</span>
     <button class="btn dialog-close">Cancel</button>
-    <button class="btn btn-primary" id="am-apply">Apply &amp; reset</button>
+    <button class="btn btn-primary" id="am-apply">Save settings</button>
   </div>
 </div>
 
@@ -577,7 +629,12 @@ export const terminalHTML = `<!DOCTYPE html>
   </div>
   <div class="dialog-body">
     <div class="field"><label>Start from</label><input id="goto-date" type="date"></div>
-    <div class="callout" style="margin-top:14px">
+    <div class="callout warn-callout" style="margin-top:14px">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div>Jumping resets the account and clears this session's trades. The date must be
+        inside the window that was downloaded when the session started.</div>
+    </div>
+    <div class="callout" style="margin-top:10px">
       <i class="fa-solid fa-keyboard"></i>
       <div><b>Shortcuts:</b> <span class="kbd">&rarr;</span> next bar · <span class="kbd">&larr;</span> previous bar · <span class="kbd">Space</span> play/pause</div>
     </div>
@@ -594,6 +651,7 @@ export const terminalHTML = `<!DOCTYPE html>
 <script src="/static/js/indicators.js"></script>
 <script src="/static/js/chart.js"></script>
 <script src="/static/js/drawings.js"></script>
+<script src="/static/js/trade-overlay.js"></script>
 <script src="/static/js/news.js"></script>
 <script src="/static/js/engine.js"></script>
 <script src="/static/js/pine.js"></script>
