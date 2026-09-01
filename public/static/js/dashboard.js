@@ -54,9 +54,741 @@
     closeDrawer();
     window.scrollTo({ top: 0, behavior: 'instant' });
     if (location.hash.slice(1) !== page) history.replaceState(null, '', '#' + page);
+    // Exchange sockets stay open only while their page is on screen.
+    if (page === 'live') mountLive();
+    else {
+      window.LiveCrypto && LiveCrypto.unmount();
+      window.SignalUI && SignalUI.unmount();
+      window.MicroPanels && MicroPanels.unmount();
+      window.Sessions && Sessions.unmount();
+    }
   }
   $$('.nav-item[data-nav]').forEach(n => n.addEventListener('click', () => show(n.dataset.nav)));
   $$('[data-goto]').forEach(b => b.addEventListener('click', () => show(b.dataset.goto)));
+
+  // ------------------------------------------------------------- live crypto
+  // The pair list is the crypto slice of the symbol universe, so it stays in
+  // step with whatever the rest of the app supports.
+  let livePair = 'BTCUSDT';
+  let liveClass = 'crypto';
+  try {
+    livePair = localStorage.getItem('bt_live_pair') || livePair;
+    liveClass = localStorage.getItem('bt_live_class') || liveClass;
+  } catch (_e) {}
+
+  // Indices carry none of the crypto microstructure — there is no exchange
+  // order book behind a CFD to consolidate — so the two classes show different
+  // panels rather than pretending the same ones apply.
+  const INDEX_SYMS = ['NAS100', 'US30', 'SPX500', 'GER40', 'UK100', 'JPN225'];
+  const isIndex = () => liveClass === 'index';
+
+  function renderPairs() {
+    const host = $('#lcp-pairs');
+    if (!host) return;
+    const list = isIndex()
+      ? INDEX_SYMS.filter(s => window.findSymbol && findSymbol(s)).map(s => findSymbol(s))
+      : (window.SYMBOLS || []).filter(s => s.cat === 'crypto').slice(0, 14);
+    if (!list.some(p => p.sym === livePair)) livePair = list[0] ? list[0].sym : livePair;
+
+    host.innerHTML = list.map(p =>
+      `<button class="lcp-pair ${p.sym === livePair ? 'active' : ''}" data-sym="${p.sym}">
+         ${isIndex() ? p.sym : p.sym.replace(/USDT$/, '')}</button>`).join('');
+    host.onclick = (e) => {
+      const b = e.target.closest('.lcp-pair');
+      if (!b) return;
+      livePair = b.dataset.sym;
+      try { localStorage.setItem('bt_live_pair', livePair); } catch (_e) {}
+      renderPairs();
+      mountLive();
+      loadChart();
+    };
+
+    $$('#lcp-class button').forEach(b =>
+      b.classList.toggle('active', (b.dataset.class === 'index') === isIndex()));
+    $('#lcp-index') && $('#lcp-index').classList.toggle('hidden', !isIndex());
+    $('#lcp-index2') && $('#lcp-index2').classList.toggle('hidden', !isIndex());
+    $('#lcp-call-wrap') && $('#lcp-call-wrap').classList.toggle('hidden', !isIndex());
+    // Everything below is crypto-only; hiding it is more honest than showing
+    // empty panels that can never fill for an index.
+    for (const sel of ['.lcp-micro', '.lcp-grid', '#lcp-market', '#lcp-quote', '#lcp-venues']) {
+      const el = document.querySelector(sel);
+      if (el) el.classList.toggle('hidden', isIndex());
+    }
+  }
+
+  // ---- sessions --------------------------------------------------------
+  function renderSessions() {
+    const host = $('#lcp-sessions');
+    if (!host || !window.Sessions) return;
+    host.innerHTML = Sessions.DEFS.map(d =>
+      `<button class="ses-chip ${Sessions.isOn(d.id) ? '' : 'off'}" data-ses="${d.id}">
+         <i style="background:${d.color}"></i>${d.label}
+         <small>${Sessions.fmtLocal(d.from)}–${Sessions.fmtLocal(d.to)}</small>
+       </button>`).join('');
+    host.onclick = (e) => {
+      const b = e.target.closest('.ses-chip');
+      if (!b) return;
+      Sessions.toggle(b.dataset.ses);
+      // Trend is context on the call, and it only exists while the engine runs.
+      if (window.Signals) Signals.start(() => livePair, 30000);
+      renderSessions();
+      Sessions.paint();
+    };
+    const tz = $('#lcp-tz');
+    if (tz) {
+      const off = Sessions.localOffsetMin();
+      const sign = off >= 0 ? '+' : '-';
+      tz.textContent = `${Sessions.zoneName()} · UTC${sign}${String(Math.floor(Math.abs(off) / 60)).padStart(2, '0')}:${String(Math.abs(off) % 60).padStart(2, '0')}`;
+    }
+    renderSessionNow();
+  }
+
+  function renderSessionNow() {
+    const host = $('#lcp-ses-now');
+    if (!host || !window.Sessions) return;
+    const act = Sessions.active();
+    const mins = Sessions.toUsOpen();
+    const openTxt = mins > 0
+      ? `US cash opens in ${mins < 60 ? Math.round(mins) + ' min' : (mins / 60).toFixed(1) + ' h'}`
+      : `US cash opened ${Math.abs(mins) < 60 ? Math.round(Math.abs(mins)) + ' min' : (Math.abs(mins) / 60).toFixed(1) + ' h'} ago`;
+    host.innerHTML =
+      `<div class="ses-now">
+         <div class="ses-row"><b>${openTxt}</b></div>
+         ${act.length
+           ? act.map(a => `<div class="ses-row"><i class="ses-dot" style="background:${a.color}"></i>
+               <span>${a.label} open</span>
+               <span class="ses-count">${Sessions.fmtLocal(a.from)}–${Sessions.fmtLocal(a.to)} your time</span></div>`).join('')
+           : '<div class="ses-row ses-count">No major session open right now.</div>'}
+         <div class="ses-row ses-count">Times shown in ${Sessions.zoneName()}; the data itself is UTC.</div>
+       </div>`;
+  }
+
+  // ---- open forecast ---------------------------------------------------
+  /**
+   * A probability drawn with its interval.
+   *
+   * The bar shows the range the sample actually supports; the tick is the point
+   * estimate and the faint line is the coin toss. When the shaded band straddles
+   * 50% there is no claim to make, and the drawing says so without words.
+   */
+  function ciBar(w) {
+    if (!w) return '';
+    return `<div class="fc-ci">
+      <div class="fc-ci-bar">
+        <i style="left:${w.lo.toFixed(1)}%;width:${Math.max(1, w.hi - w.lo).toFixed(1)}%"></i>
+        <s style="left:50%"></s>
+        <u style="left:${w.p.toFixed(1)}%"></u>
+      </div>
+      <div class="fc-ci-lab"><span>0%</span>
+        <span>${w.lo.toFixed(0)}–${w.hi.toFixed(0)}% likely range · n=${w.n}</span>
+        <span>100%</span></div>
+    </div>`;
+  }
+
+  function miniBar(w) {
+    if (!w) return '<span class="fc-mini"></span><span class="fc-mini-n">—</span>';
+    return `<span class="fc-mini">
+        <i style="left:${w.lo.toFixed(1)}%;width:${Math.max(1, w.hi - w.lo).toFixed(1)}%"></i>
+        <s style="left:50%"></s>
+      </span><span class="fc-mini-n">${w.p.toFixed(0)}% ±${((w.hi - w.lo) / 2).toFixed(0)}</span>`;
+  }
+
+  function renderForecast() {
+    const host = $('#lcp-forecast');
+    const nEl = $('#lcp-fc-n');
+    if (!host || !window.SessionBot || !window.OpenStats) return;
+
+    const c = OpenStats.cache;
+    const t = OpenStats.today(window.ChartMgr ? ChartMgr.candles : null);
+    const onChart = window.ChartMgr && ChartMgr.symInfo && ChartMgr.symInfo.sym;
+
+    if (onChart !== livePair || c.sym !== livePair || !c.sessions.length || !t) {
+      nEl && (nEl.textContent = OpenStats.loading ? 'loading' : '—');
+      host.innerHTML = `<div class="fc-head fc-none">${OpenStats.loading
+        ? 'Reading the sessions this one has to be compared against…'
+        : 'No history loaded for this instrument yet.'}</div>`;
+      return;
+    }
+
+    const f = SessionBot.forecast(c.sessions, t, livePair);
+    if (!f) { host.innerHTML = '<div class="fc-head fc-none">Nothing to compare against.</div>'; return; }
+
+    if (!f.enough) {
+      nEl && (nEl.textContent = `n=${f.n}`);
+      host.innerHTML =
+        `<div class="fc-head"><div class="fc-none">Only <b>${f.n}</b> past session${f.n === 1 ? '' : 's'}
+           matched this setup even after loosening the conditions. That is not enough to put a number on,
+           so none is given.</div></div>`;
+      return;
+    }
+
+    nEl && (nEl.textContent = `n=${f.n}`);
+    const h = f.headline;
+    const news = f.news;
+
+    const newsBlock = news.items.length
+      ? `<div class="fc-caveat"><b>${news.items.length} release${news.items.length === 1 ? '' : 's'}
+           in the open window</b> — ${news.items.slice(0, 3).map(x => esc(x.title)).join(', ')}.
+           ${news.high
+             ? 'A high-impact US print at the open is precisely the case history cannot speak to; treat every figure here as suspended until it lands.'
+             : 'Nothing top-tier, but the window is not clean.'}</div>`
+      : '';
+
+    host.innerHTML =
+      `<div class="fc-head">
+         <div class="${h.has ? 'fc-claim' : 'fc-none'}">${esc(h.text)}</div>
+       </div>
+       ${h.has ? `<div class="fc-prob">
+           <b class="${h.w.p >= 50 ? 't-up' : 't-down'}">${h.w.p.toFixed(0)}%</b>
+           <small>of ${h.w.n} comparable sessions</small>
+         </div>${ciBar(h.w)}` : ''}
+       ${newsBlock}
+       <div class="fc-rows">
+         <div class="fc-row"><span>Gap fills during the session</span>${miniBar(f.outcomes.fill)}</div>
+         <div class="fc-row"><span>First hour holds the gap direction</span>${miniBar(f.outcomes.hold)}</div>
+         <div class="fc-row"><span>Closes in the gap's direction</span>${miniBar(f.outcomes.close)}</div>
+         <div class="fc-row"><span>First hour ranges more than 0.35%</span>${miniBar(f.outcomes.expand)}</div>
+       </div>
+       <div class="fc-rows">
+         <div class="fc-row"><span>Typical first hour</span>
+           <span class="fc-mini-n">${f.hour.medianMove >= 0 ? '+' : ''}${f.hour.medianMove.toFixed(2)}%</span></div>
+         <div class="fc-row"><span>Reach up / down (median)</span>
+           <span class="fc-mini-n">+${f.hour.medianUp.toFixed(2)}% / ${f.hour.medianDown.toFixed(2)}%</span></div>
+         <div class="fc-row"><span>Stretch case (8 in 10)</span>
+           <span class="fc-mini-n">+${f.hour.p80Up.toFixed(2)}% / ${f.hour.p80Down.toFixed(2)}%</span></div>
+       </div>
+       <div class="fc-used">Matched on ${f.used.join(', ')}${f.dropped.length
+         ? `. Dropped to find enough sessions: ${f.dropped.join(', ')}` : ''}.
+         The shaded band is the range the sample supports at 95% — with ${f.n} sessions it is wide,
+         and that width is the real answer. These are base rates, not a forecast of today.${
+           f.n < 15 ? ` Reading further back would narrow it; ${histDays}d is loaded now.` : ''}</div>`;
+  }
+
+  // ---- today's call ----------------------------------------------------
+  function renderCall() {
+    const host = $('#lcp-call');
+    const whenEl = $('#lcp-call-when');
+    const scoreEl = $('#lcp-call-score');
+    if (!host || !window.DailyCall || !window.SessionBot) return;
+
+    const c = OpenStats.cache;
+    const onChart = window.ChartMgr && ChartMgr.symInfo && ChartMgr.symInfo.sym;
+    // Both the prices and the history have to belong to this instrument. Whilst
+    // an instrument switch is in flight the chart flips first and the session
+    // history a moment later, and building a call across that gap produced US30
+    // levels carrying NASDAQ's base rates.
+    if (onChart !== livePair || c.sym !== livePair || !c.sessions.length) {
+      whenEl && (whenEl.textContent = OpenStats.loading ? 'loading' : '—');
+      host.innerHTML = `<div class="dc-note">${OpenStats.loading
+        ? 'Reading the sessions this call has to be measured against…'
+        : 'No history loaded for this instrument yet.'}</div>`;
+      return;
+    }
+
+    // Grade whatever has since played out before writing anything new.
+    DailyCall.grade(livePair, c.sessions);
+
+    const t = OpenStats.today(window.ChartMgr ? ChartMgr.candles : null);
+    const trends = window.Signals ? Signals.trends : null;
+    const fresh = DailyCall.build(livePair, c.sessions, t, trends);
+    const call = fresh && fresh.enough ? DailyCall.record(fresh) : fresh;
+
+    const mins = Sessions.toUsOpen();
+    whenEl && (whenEl.textContent = mins > 0
+      ? `opens in ${mins < 60 ? Math.round(mins) + 'm' : (mins / 60).toFixed(1) + 'h'}`
+      : `open ${Math.abs(mins) < 60 ? Math.round(Math.abs(mins)) + 'm' : (Math.abs(mins) / 60).toFixed(1) + 'h'} ago`);
+
+    const sc = DailyCall.scorecard(livePair);
+    if (scoreEl) {
+      scoreEl.textContent = sc.n
+        ? `${sc.right}/${sc.n} graded · ${sc.pct.toFixed(0)}%`
+        : 'no record yet';
+    }
+
+    if (!call || !call.enough) {
+      host.innerHTML =
+        `<div class="dc-head"><span class="dc-tier none">no call</span>
+           <div class="dc-claim">Not calling this one.</div>
+           <div class="dc-sub">${esc(call ? call.reason : 'No comparable sessions.')}
+             Reading further back would give it more to work with.</div></div>` + logBlock(sc);
+      return;
+    }
+
+    const d = (window.findSymbol && findSymbol(livePair)?.digits) ?? 1;
+    const px = (v) => Number(v).toLocaleString(undefined,
+      { minimumFractionDigits: d, maximumFractionDigits: d });
+
+    const tierLabel = { firm: 'firm read', lean: 'lean only', none: 'no read' }[call.tier];
+    const claim = call.claim
+      ? esc(call.claim)
+      : 'Nothing in the matched sessions separates from a coin toss. No call today.';
+
+    const probLine = call.prob
+      ? `<div class="dc-sub"><b>${call.prob.p.toFixed(0)}%</b> of ${call.prob.n} comparable sessions —
+           the interval runs ${call.prob.lo.toFixed(0)}–${call.prob.hi.toFixed(0)}%, and that width is
+           part of the answer.</div>`
+      : '';
+
+    const newsPill = call.news.items.length
+      ? `<span class="dc-pill">${call.news.items.length} release${call.news.items.length === 1 ? '' : 's'} at the open${call.news.high ? ' · high impact' : ''}</span>`
+      : `<span class="dc-pill">clean news window</span>`;
+
+    host.innerHTML =
+      `<div class="dc-head">
+         <span class="dc-tier ${call.tier}">${tierLabel}</span>
+         <div class="dc-claim">${claim}</div>
+         ${probLine}
+       </div>
+       <div class="dc-levels">
+         <div class="dc-lv"><span>Yesterday's close</span><b>${px(call.levels.prevClose)}</b></div>
+         <div class="dc-lv"><span>${call.gapPct >= 0 ? 'Gap up' : 'Gap down'}</span>
+           <b class="${call.gapPct >= 0 ? 't-up' : 't-down'}">${call.gapPct >= 0 ? '+' : ''}${call.gapPct.toFixed(2)}%</b>
+           <small>from ${px(call.levels.ref)}</small></div>
+         <div class="dc-lv"><span>First hour, up to</span><b class="t-up">${px(call.levels.reachUp)}</b>
+           <small>stretch ${px(call.levels.stretchUp)}</small></div>
+         <div class="dc-lv"><span>First hour, down to</span><b class="t-down">${px(call.levels.reachDown)}</b>
+           <small>stretch ${px(call.levels.stretchDown)}</small></div>
+       </div>
+       <div class="dc-ctx">
+         ${call.context.trendNote ? `<span class="dc-pill">${esc(call.context.trendNote)} — ${esc(call.context.trendAgrees)}</span>` : ''}
+         ${newsPill}
+         <span class="dc-pill">matched on ${esc(call.used.join(', '))}</span>
+       </div>
+       <div class="dc-note">The reach levels are the median of what sessions like this one actually
+         did in the first hour, priced for today; the stretch figures are the 8-in-10 case, which is
+         what a stop has to survive. Trend and news sit beside the number, not inside it — there is
+         no sample behind them, and folding them in would invent precision the data does not have.</div>` +
+      logBlock(sc);
+  }
+
+  function logBlock(sc) {
+    if (!sc || !sc.recent || !sc.recent.length) {
+      return `<div class="dc-note">No graded calls yet. Each day's call is written down before the
+        open and scored once the session has run, so this fills in on its own.</div>`;
+    }
+    const rows = sc.recent.map(c => {
+      const mark = c.graded ? (c.right ? 'ok' : 'no') : 'pending';
+      const glyph = c.graded ? (c.right ? '✓' : '✗') : '·';
+      const what = c.claim ? c.claim.replace(/^Sessions like this one tended to /, '') : 'no call';
+      return `<div class="dc-log-row">
+        <small>${c.day}</small>
+        <span class="dc-mark ${mark}">${glyph}</span>
+        <span>${esc(what.slice(0, 64))}</span>
+        <small>${c.prob ? c.prob.p.toFixed(0) + '%' : '—'}</small>
+      </div>`;
+    }).join('');
+    const tiers = Object.entries(sc.byTier || {})
+      .map(([k, v]) => `${k}: ${v.right}/${v.n}`).join(' · ');
+    return `<div class="dc-log">
+      <div class="dc-note" style="padding:0 0 6px">Its own calls, graded after the fact${tiers ? ` — ${tiers}` : ''}.</div>
+      ${rows}</div>`;
+  }
+
+  // ---- how violent each open is ----------------------------------------
+  let volCache = { sym: null, data: null };
+  // How far back to read. More history narrows the confidence intervals, which
+  // is usually the difference between the bot having something to say and
+  // honestly saying it does not — but below an hour the archive is one file per
+  // day, so ninety days is ninety requests.
+  let histDays = 30;
+  try { histDays = parseInt(localStorage.getItem('bt_hist_days')) || 30; } catch (_e) {}
+
+  function renderVolProfile() {
+    const host = $('#lcp-volprofile');
+    const nEl = $('#lcp-vol-n');
+    if (!host || !window.SessionBot) return;
+
+    const c = OpenStats.cache;
+    if (!c.candles || c.sym !== livePair) {
+      nEl && (nEl.textContent = OpenStats.loading ? 'loading' : '—');
+      host.innerHTML = `<div class="vp-note">${OpenStats.loading
+        ? 'Measuring the sessions…' : 'No history loaded yet.'}</div>`;
+      return;
+    }
+    if (volCache.sym !== livePair) {
+      volCache = { sym: livePair, data: SessionBot.volatilityProfile(c.candles, 30) };
+    }
+    const v = volCache.data;
+    if (!v) { host.innerHTML = '<div class="vp-note">Not enough history to measure.</div>'; return; }
+
+    nEl && (nEl.textContent = `${v.days} days`);
+    const max = Math.max(1.2, ...v.opens.map(o => (o.stats ? o.stats.median : 0)));
+
+    host.innerHTML = v.opens.map(o => {
+      if (!o.stats) return `<div class="vp-row"><b>${o.label}</b><span class="vp-note">no data</span><span></span></div>`;
+      const w = Math.min(100, (o.stats.median / max) * 100);
+      return `<div class="vp-row">
+        <b>${o.label}</b>
+        <span class="vp-bar"><i style="width:${w.toFixed(0)}%"></i></span>
+        <span class="vp-x ${o.stats.median > 1.5 ? 't-up' : ''}">${o.stats.median.toFixed(2)}&times;</span>
+      </div>`;
+    }).join('') +
+      `<div class="vp-note">Range in the 30 minutes after each open, as a multiple of the same day's
+        typical 30-minute range. Above 1.0 means the open genuinely moves more than an average
+        stretch of that day — measured over ${v.days} sessions, not assumed.</div>`;
+  }
+
+  // ---- open statistics -------------------------------------------------
+  function renderOpenStats() {
+    const host = $('#lcp-openstats');
+    if (!host || !window.OpenStats) return;
+    const sum = OpenStats.summary(livePair, window.ChartMgr ? ChartMgr.candles : null);
+    const nEl = $('#lcp-open-n');
+
+    if (sum.mismatch) {
+      nEl && (nEl.textContent = 'no data');
+      host.innerHTML = `<div class="os-note">No history loaded for <b>${esc(livePair)}</b> —
+        the chart is still showing ${esc(sum.mismatch)}. The Dukascopy archive is refusing
+        requests at the moment, so nothing is shown rather than the wrong instrument's numbers.</div>`;
+      return;
+    }
+    if (sum.error) {
+      nEl && (nEl.textContent = 'unavailable');
+      host.innerHTML = `<div class="os-note">Could not build the history: ${esc(sum.error)}.
+        The index archive has been intermittent today; it will fill in when the feed returns.</div>`;
+      return;
+    }
+    if (!sum.today) {
+      const pct = Math.round((sum.progress || 0) * 100);
+      nEl && (nEl.textContent = sum.loading ? pct + '%' : '—');
+      host.innerHTML = sum.loading
+        ? `<div class="os-note">Reading a month of sessions from the archive — ${pct}%.
+             Below an hour the feed publishes one file per day, so this takes a moment.</div>
+           <div class="os-bar" style="margin:0 14px 12px"><i style="width:${pct}%"></i></div>`
+        : `<div class="os-note">Waiting for chart data.</div>`;
+      return;
+    }
+
+    const t = sum.today;
+    const st = sum.stats;
+    nEl && (nEl.textContent = `${sum.sessions} sessions`);
+
+    const gapCls = t.gapPct >= 0 ? 't-up' : 't-down';
+    // The archive publishes after the fact. When its last bar is hours old the
+    // figures describe where things stood then, and saying so beats letting
+    // them read as current.
+    const staleNote = t.stale
+      ? `<div class="os-note t-warn">The archive's last bar is ${t.staleMin > 90
+           ? (t.staleMin / 60).toFixed(1) + ' hours' : t.staleMin + ' minutes'} old —
+           these figures describe that moment, not now.</div>`
+      : '';
+    const head =
+      `<div class="os-head">
+         <div class="os-cell"><span>${t.opened ? 'Gap at open' : 'Gap so far'}</span>
+           <b class="${gapCls}">${t.gapPct >= 0 ? '+' : ''}${t.gapPct.toFixed(2)}%</b></div>
+         <div class="os-cell"><span>Prev close</span><b>${t.prevClose.toFixed(1)}</b></div>
+         <div class="os-cell"><span>Overnight range</span>
+           <b>${t.onRangePct != null ? t.onRangePct.toFixed(2) + '%' : '—'}</b></div>
+         <div class="os-cell"><span>${t.opened ? 'Since open' : 'To open'}</span>
+           <b>${t.opened ? 'live' : (t.minsToOpen < 60 ? Math.round(t.minsToOpen) + 'm' : (t.minsToOpen / 60).toFixed(1) + 'h')}</b></div>
+       </div>`;
+
+    if (!st) {
+      const pct = Math.round((sum.progress || 0) * 100);
+      host.innerHTML = head + staleNote + (sum.loading
+        ? `<div class="os-note">Reading a month of sessions — ${pct}%.</div>
+           <div class="os-bar" style="margin:0 14px 12px"><i style="width:${pct}%"></i></div>`
+        : `<div class="os-note">Not enough history to compare against yet.</div>`);
+      return;
+    }
+    if (st.tooFew) {
+      host.innerHTML = head + staleNote +
+        `<div class="os-note">Only ${st.n} past session${st.n === 1 ? '' : 's'} looked like this one.
+         That is too few to quote a rate from, so no rate is quoted.</div>`;
+      return;
+    }
+
+    const rate = (label, pct) =>
+      `<div class="os-rate"><span>${label}</span><b>${pct.toFixed(0)}%</b>
+         <span class="os-bar"><i style="width:${pct.toFixed(0)}%"></i></span></div>`;
+
+    host.innerHTML = head + staleNote +
+      `<div class="os-rates">
+         ${rate('Gap filled during the session', st.filledPct)}
+         ${rate('First hour held the gap direction', st.heldPct)}
+         ${rate('Closed the session in that direction', st.closedWithPct)}
+       </div>
+       <div class="os-head">
+         <div class="os-cell"><span>Median first hour</span>
+           <b class="${st.medianHourPct >= 0 ? 't-up' : 't-down'}">${st.medianHourPct >= 0 ? '+' : ''}${st.medianHourPct.toFixed(2)}%</b></div>
+         <div class="os-cell"><span>Avg reach up</span><b class="t-up">+${st.avgUpPct.toFixed(2)}%</b></div>
+         <div class="os-cell"><span>Avg reach down</span><b class="t-down">${st.avgDownPct.toFixed(2)}%</b></div>
+       </div>
+       <div class="os-note">Measured over <b>${st.n}</b> past sessions whose gap was within
+         ${st.band.toFixed(2)}% of today's, in the same direction. These are base rates, not a
+         forecast — they say what usually followed, not what is about to. With ${st.n} matches
+         from one instrument over a few weeks, treat a difference of a few percent as noise.</div>`;
+  }
+
+
+  // ---- chart -------------------------------------------------------------
+  let liveTf = '5m';
+  try { liveTf = localStorage.getItem('bt_live_tf') || liveTf; } catch (_e) {}
+  let chartReady = false;
+  let loadSeq = 0;
+  let chartError = null;
+
+  // How much history to pull per timeframe: enough context without making the
+  // page wait on a download it does not need.
+  const SPAN = { '1m': 2, '5m': 7, '15m': 21, '1h': 90, '4h': 300, '1d': 1500 };
+
+  async function loadChart() {
+    if (!window.ChartMgr || !$('#lcp-chart')) return;
+    if (!chartReady) { ChartMgr.init($('#lcp-chart')); chartReady = true; }
+
+    const seq = ++loadSeq;
+    const info = window.findSymbol(livePair);
+    const to = Math.floor(Date.now() / 1000);
+    const from = to - (SPAN[liveTf] || 30) * 86400;
+    try {
+      const candles = await DataStore.load(livePair, liveTf, from, to);
+      // A slower earlier request must not overwrite a newer selection.
+      if (seq !== loadSeq) return;
+      if (!candles || candles.length < 5) {
+        throw new Error('no candles came back for ' + livePair);
+      }
+      ChartMgr.setData(candles, info, { fit: false, lastBars: 120 });
+      LiveChart.refresh();
+      chartError = null;
+    } catch (e) {
+      console.warn('[live] chart load failed', e);
+      chartError = e.message || 'the data feed refused the request';
+    }
+    syncOverlayButtons();
+  }
+
+  // Perps only exist quoted in USDT, so offering a USD filter beside them would
+  // silently produce an empty book.
+  function syncQuoteButtons() {
+    const perpOnly = CryptoHub.market === 'perp';
+    $$('#lcp-quote button').forEach(b => {
+      const isUsd = b.dataset.quote === 'USD';
+      b.disabled = perpOnly && isUsd;
+      b.classList.toggle('active', b.dataset.quote === CryptoHub.quote);
+    });
+    $$('#lcp-market button').forEach(b =>
+      b.classList.toggle('active', b.dataset.market === CryptoHub.market));
+  }
+
+  // The sizing inputs are the account, so they persist and drive every plan the
+  // signal card draws.
+  const RISK_FIELDS = { 'rk-balance': 'balance', 'rk-risk': 'riskPct', 'rk-lev': 'leverage', 'rk-hold': 'holdHours' };
+
+  function syncRiskInputs() {
+    if (!window.Risk) return;
+    const c = Risk.cfg;
+    for (const [id, key] of Object.entries(RISK_FIELDS)) {
+      const el = $('#' + id);
+      if (el && document.activeElement !== el) el.value = c[key];
+    }
+    const note = $('#lcp-risk-note');
+    if (note) note.textContent = `${c.riskPct}% of ${Risk.fmt(c.balance)}`;
+  }
+
+  function bindRiskInputs() {
+    if (bindRiskInputs._done || !window.Risk) return;
+    bindRiskInputs._done = true;
+    for (const [id, key] of Object.entries(RISK_FIELDS)) {
+      const el = $('#' + id);
+      if (!el) continue;
+      el.addEventListener('input', () => {
+        Risk.set(key, el.value);
+        syncRiskInputs();
+        window.SignalUI && SignalUI.repaint();
+      });
+    }
+  }
+
+  function syncOverlayButtons() {
+    if (!window.MicroPanels) return;
+    const st = MicroPanels.status();
+    const h = $('#lcp-heat-note');
+    if (h) h.textContent = st.cols
+      ? `${st.seconds}s of book`
+      : 'live only — fills in from now';
+    const f = $('#lcp-foot-note');
+    if (f) {
+      const tickTxt = st.tick ? ` · ${st.tick} rows` : '';
+      f.textContent = (st.backfill || (st.bars ? `${st.bars} bars` : 'waiting for prints')) + tickTxt;
+    }
+    const n = $('#lcp-ovnote');
+    if (n) {
+      if (chartError) {
+        n.textContent = `${livePair}: ${chartError}`;
+        n.classList.add('t-down');
+      } else {
+        n.classList.remove('t-down');
+        n.textContent = isIndex()
+          ? `${livePair} · archive feed`
+          : 'streaming from ' + (CryptoHub.feed ? CryptoHub.feed.liveBooks().length : 0) + ' venues';
+      }
+    }
+  }
+
+  // Page controls, bound once. Kept out of mountLive's branches so an early
+  // return on one instrument class cannot leave them unbound for the other.
+  function bindControls() {
+    if (bindControls._done) return;
+    bindControls._done = true;
+
+      $('#lcp-tf').addEventListener('click', (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        liveTf = b.dataset.tf;
+        try { localStorage.setItem('bt_live_tf', liveTf); } catch (_e) {}
+        $$('#lcp-tf button').forEach(x => x.classList.toggle('active', x === b));
+        loadChart();
+      });
+      $('#lcp-band').addEventListener('click', (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        $$('#lcp-band button').forEach(x => x.classList.toggle('active', x === b));
+        MicroPanels.setBand(parseFloat(b.dataset.band));
+      });
+      $('#lcp-fpbars').addEventListener('click', (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        $$('#lcp-fpbars button').forEach(x => x.classList.toggle('active', x === b));
+        MicroPanels.setBars(parseInt(b.dataset.bars));
+      });
+      $('#lcp-fpmult').addEventListener('click', (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        $$('#lcp-fpmult button').forEach(x => x.classList.toggle('active', x === b));
+        MicroPanels.setFpMult(parseInt(b.dataset.mult));
+      });
+      $('#lcp-hist').addEventListener('click', (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        $$('#lcp-hist button').forEach(x => x.classList.toggle('active', x === b));
+        histDays = parseInt(b.dataset.days);
+        try { localStorage.setItem('bt_hist_days', String(histDays)); } catch (_e) {}
+        volCache = { sym: null, data: null };
+        OpenStats.cache.sym = null;                     // force a re-read
+        renderOpenStats(); renderForecast(); renderVolProfile();
+        OpenStats.load(livePair, histDays)
+          .then(() => { renderOpenStats(); renderCall(); renderForecast(); renderVolProfile(); })
+          .catch(() => renderOpenStats());
+      });
+      $('#lcp-class').addEventListener('click', (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        liveClass = b.dataset.class;
+        try { localStorage.setItem('bt_live_class', liveClass); } catch (_e) {}
+        renderPairs();
+        mountLive();
+        loadChart();
+      });
+      $('#lcp-market').addEventListener('click', (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        $$('#lcp-market button').forEach(x => x.classList.toggle('active', x === b));
+        CryptoHub.setMarket(b.dataset.market);
+        syncQuoteButtons();
+        MicroPanels.onMarketChange();
+      });
+      $('#lcp-quote').addEventListener('click', (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        CryptoHub.setQuote(b.dataset.quote);
+        syncQuoteButtons();
+        MicroPanels.paint();
+      });
+      setInterval(() => { if ($('#lcp-ovnote')) syncOverlayButtons(); }, 2000);
+  }
+
+  // On a phone the Live Crypto intro was a third of the first screen. It is
+  // clamped there and opened on demand rather than cut, so nothing is lost.
+  function bindIntroToggle() {
+    const head = document.querySelector('.page[data-page="live"] .page-head');
+    const p = head && head.querySelector('p');
+    if (!head || !p || head.querySelector('.intro-more')) return;
+    const btn = document.createElement('button');
+    btn.className = 'intro-more';
+    btn.textContent = 'more';
+    btn.addEventListener('click', () => {
+      const open = p.classList.toggle('open');
+      btn.textContent = open ? 'less' : 'more';
+    });
+    head.appendChild(btn);
+  }
+  bindIntroToggle();
+
+  // Install and alert controls live on the page, not behind a browser menu.
+  if (window.PWA) PWA.init('#lcp-pwa');
+
+  function mountLive() {
+    if (!window.LiveCrypto || !$('#lcp-book')) return;
+    renderPairs();
+    $('#lcp-sym') && ($('#lcp-sym').textContent = livePair);
+    CryptoHub.setSymbol(livePair);
+    LiveCrypto.mount({
+      book: $('#lcp-book'), delta: $('#lcp-delta'),
+      whales: $('#lcp-whales'), venues: $('#lcp-venues'),
+    }, { density: 'page', symbol: livePair });
+
+    if (window.LiveChart) {
+      LiveChart.configure({
+        symbol: () => livePair, tf: () => liveTf, blocked: () => false,
+      });
+      LiveChart.init('#lcp-chart-wrap');
+    }
+    $$('#lcp-tf button').forEach(b => b.classList.toggle('active', b.dataset.tf === liveTf));
+    loadChart();
+    syncOverlayButtons();
+
+    syncQuoteButtons();
+    syncRiskInputs();
+    if (window.Sessions) Sessions.mount('#lcp-chart-wrap');
+
+    // Bound before the index branch returns: these controls belong to the page,
+    // and wiring them inside a path that only crypto reaches left every button
+    // on the index view inert.
+    bindControls();
+    // Reflect the stored choice before any branch returns — the index view was
+    // showing 30d while sixty days were actually loaded.
+    $$('#lcp-hist button').forEach(x =>
+      x.classList.toggle('active', parseInt(x.dataset.days) === histDays));
+
+    if (isIndex()) {
+      window.MicroPanels && MicroPanels.unmount();
+      window.LiveCrypto && LiveCrypto.unmount();
+      window.SignalUI && SignalUI.unmount();
+      renderSessions();
+      renderOpenStats();
+      renderCall();
+      renderForecast();
+      renderVolProfile();
+      volCache = { sym: null, data: null };
+      OpenStats.load(livePair, histDays)
+        .then(() => { renderOpenStats(); renderForecast(); renderVolProfile(); })
+        .catch(() => renderOpenStats());
+      if (!mountLive._idxTimer) {
+        mountLive._idxTimer = setInterval(() => {
+          if (isIndex() && $('#lcp-openstats')) {
+            renderSessionNow(); renderOpenStats(); renderCall();
+            renderForecast(); renderVolProfile();
+          }
+        }, 5000);
+      }
+      return;
+    }
+
+    if (window.MicroPanels) {
+      MicroPanels.onSymbolChange();
+      MicroPanels.mount({ heat: $('#lcp-heat'), foot: $('#lcp-foot') });
+    }
+
+    if (window.SignalUI) {
+      SignalUI.onSymbolChange();
+      SignalUI.mount({
+        symbol: () => livePair,
+        trend: '#lcp-trend', signal: '#lcp-signal', state: '#lcp-sig-state',
+        news: '#lcp-news', newsCount: '#lcp-news-count',
+      });
+    }
+    bindRiskInputs();
+  }
 
   // ---------------------------------------------------------- mobile drawer
   $('#nav-toggle') && $('#nav-toggle').addEventListener('click', () => {

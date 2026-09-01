@@ -95,24 +95,42 @@ const TradeOverlay = (() => {
   function priceY(p) { return ChartMgr.priceToY(p); }
   function timeX(t) { return ChartMgr.timeToX(t); }
 
-  /** Right-hand edge of the plot area (before the price scale). */
-  function plotRight() {
-    return canvas.clientWidth;
+  /** Right-hand edge of the plot area usable at height `y`.
+   *
+   *  The order ticket floats over the top-right of the chart. Everything that
+   *  makes a position actionable — the entry label, its close button, the SL
+   *  and TP grips — is drawn at the right end of the line, so a bracket that
+   *  runs under the ticket is both invisible and unclickable. Stop short of the
+   *  ticket for rows that would pass beneath it, and use the full width for
+   *  rows that clear it. */
+  function plotRight(y) {
+    const full = canvas.clientWidth;
+    const tk = document.getElementById('ticket');
+    if (!tk || tk.classList.contains('hidden')) return full;
+    const t = tk.getBoundingClientRect();
+    if (!t.width) return full;
+    const c = canvas.getBoundingClientRect();
+    if (y != null && (y < t.top - c.top - 6 || y > t.bottom - c.top + 6)) return full;
+    return Math.max(140, Math.min(full, t.left - c.left - 8));
   }
 
-  /** Layout for one position: x span + y for entry/sl/tp. */
+  /** Layout for one position: x span + y for entry/sl/tp.
+   *  All three rows share one right edge so the bracket reads as one object,
+   *  taken as the tightest any of them needs to clear the ticket. */
   function layout(p) {
     const yE = priceY(p.entry);
     if (yE == null) return null;
+    const ySL = p.sl != null ? priceY(p.sl) : null;
+    const yTP = p.tp != null ? priceY(p.tp) : null;
+
+    let x1 = plotRight(yE);
+    if (ySL != null) x1 = Math.min(x1, plotRight(ySL));
+    if (yTP != null) x1 = Math.min(x1, plotRight(yTP));
+
     let x0 = timeX(p.openTime);
     if (x0 == null) x0 = 0;
-    x0 = Math.max(0, Math.min(x0, plotRight() - 120));
-    const x1 = plotRight();
-    return {
-      x0, x1, yE,
-      ySL: p.sl != null ? priceY(p.sl) : null,
-      yTP: p.tp != null ? priceY(p.tp) : null,
-    };
+    x0 = Math.max(0, Math.min(x0, x1 - 120));
+    return { x0, x1, yE, ySL, yTP };
   }
 
   // ---------------------------------------------------------------- hit test
@@ -415,11 +433,15 @@ const TradeOverlay = (() => {
   function drawPreview(pv, dg, pip, units) {
     const yE = priceY(pv.entry);
     if (yE == null) return;
-    const x1 = plotRight();
-    const x0 = Math.max(0, x1 - 260);
-    const isLong = pv.dir > 0;
     const ySL = pv.sl != null ? priceY(pv.sl) : null;
     const yTP = pv.tp != null ? priceY(pv.tp) : null;
+    // Same rule as a live bracket: the preview's labels must clear the ticket,
+    // which is exactly the panel you are reading them against.
+    let x1 = plotRight(yE);
+    if (ySL != null) x1 = Math.min(x1, plotRight(ySL));
+    if (yTP != null) x1 = Math.min(x1, plotRight(yTP));
+    const x0 = Math.max(0, x1 - 260);
+    const isLong = pv.dir > 0;
 
     ctx.save();
     ctx.globalAlpha = 0.85;

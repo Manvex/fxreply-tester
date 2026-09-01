@@ -203,6 +203,10 @@
   }
   #tools .tool-btn { flex: 0 0 auto; }
   #tools .tool-sep { display: none; }
+  /* Only once it is a horizontal strip does a fixed height make sense — as a
+     vertical rail this collapses it to a single button. */
+  #tools { height: 38px !important; padding: 0 6px !important; gap: 2px !important; }
+  #tools .tool-btn { width: 34px !important; height: 32px !important; font-size: 12px !important; }
 
   #chart-zone { min-height: 46vh; }
   #dock { max-height: 52vh; }
@@ -235,4 +239,170 @@
 /* Respect reduced-motion preferences */
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+
+/* ==========================================================================
+   Mobile, second pass — measured fixes rather than blanket overrides.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Terminal top bar
+   The groups were nowrap flex rows, so their children were squeezed instead of
+   wrapping: the timeframe strip collapsed to six pixels wide holding three
+   hundred of content, which is why the timeframes could not be reached at all,
+   and the account cells overflowed their chip. Each group now takes its own
+   line and nothing is allowed to shrink to nothing.
+
+   Applied up to 1100px, not 780: that is where the side rail disappears, and
+   between the two there was a dead zone where the bar was already too tight
+   for one row but got none of these fixes — the account figures were clipped
+   at 72px holding 234px of content.
+   -------------------------------------------------------------------------- */
+@media (max-width: 1100px) {
+  #topbar { align-items: stretch; row-gap: 6px; flex-wrap: wrap; height: auto; padding: 8px 10px; }
+  #topbar .tb-group {
+    flex-wrap: wrap; width: 100%; min-width: 0;
+    justify-content: flex-start; gap: 8px;
+  }
+
+  /* Timeframes get a full-width strip they can actually scroll in. */
+  #topbar .tf-bar {
+    flex: 1 0 100%; order: 5; min-width: 0;
+    overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+  }
+  #topbar .tf-bar::-webkit-scrollbar { display: none; }
+  .tf-btn { flex: 0 0 auto; min-width: 44px; min-height: 34px; }
+
+  /* Account figures on their own row, sharing the width evenly. */
+  #acct-chip {
+    flex: 1 0 100%; order: 20; width: 100%;
+    display: flex; gap: 6px; overflow: visible;
+    /* The desktop chip is a fixed-height pill; on its own row the figures need
+       to size to their own content or the values are clipped mid-digit. */
+    height: auto !important; min-height: 0; padding: 0 !important;
+  }
+  /* Open P/L was hidden when these shared a cramped row; on their own line all
+     three fit, and it is the one that matters with a position open. */
+  #acct-chip .ac-cell {
+    display: flex !important;
+    flex: 1 1 0; min-width: 0; text-align: left;
+    padding: 5px 8px; background: var(--s-2);
+    border: 1px solid var(--line); border-radius: var(--r-sm);
+  }
+  #acct-chip .ac-cell { height: auto; min-height: 38px; justify-content: center; }
+  #acct-chip .ac-k { font-size: 8.5px; line-height: 1.3; }
+  #acct-chip .ac-v {
+    font-size: 12px; line-height: 1.35;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* Primary actions stay reachable and readable. */
+  #topbar .btn { flex: 0 0 auto; }
+  #symbol-btn { flex: 1 1 auto; min-width: 0; }
+  #symbol-btn .sb-sym { overflow: hidden; text-overflow: ellipsis; }
+
+
+  /* The stacked top bar is taller, so the dock has to give ground or the chart
+     is left with a couple of hundred pixels on a short window. */
+  #dock { height: min(340px, 38vh); }
+  #dock.tall { height: 68vh; }
+  #chart-wrap { min-height: 34vh; }
+
+  /* Dock tabs scroll rather than crushing their labels. */
+  #dock-tabs {
+    overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  #dock-tabs::-webkit-scrollbar { display: none; }
+  .dock-tab { flex: 0 0 auto; }
+  #dock-actions { position: sticky; right: 0; background: var(--s-1); padding-left: 6px; }
+
+  /* Replay bar: the transport must stay whole on a narrow chart. */
+  #replay-bar { left: 8px; right: 8px; max-width: none; }
+  #replay-bar .rp-clock small { display: none; }
+
+}
+
+
+/* Phone-only: the chart takes the screen and the ticket becomes a sheet. */
+@media (max-width: 780px) {
+  #dock { height: 42vh; }
+  #dock.tall { height: 72vh; }
+  #chart-wrap { min-height: 46vh; }
+  #ticket {
+    top: auto !important; bottom: 0; left: 0; right: 0;
+    width: auto !important; max-height: 62vh !important;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+  }
+  #tk-reopen { top: auto; bottom: 12px; right: 12px; }
+}
+
+/* --------------------------------------------------------------------------
+   Live Crypto — the page had six hundred pixels of preamble before the chart
+   -------------------------------------------------------------------------- */
+@media (max-width: 780px) {
+  /* The long explanation is useful once, not on every visit. Clamp it and let
+     it be expanded, rather than deleting information on small screens. */
+  .page[data-page="live"] .page-head p {
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    overflow: hidden; font-size: 12.5px !important; line-height: 1.5;
+  }
+  .page[data-page="live"] .page-head p.open { -webkit-line-clamp: unset; }
+  .page[data-page="live"] .page-head { position: relative; padding-bottom: 26px !important; }
+  .intro-more {
+    position: absolute; left: 14px; bottom: 6px;
+    background: none; border: none; padding: 0; cursor: pointer;
+    color: var(--brand); font-size: 11.5px; font-family: var(--font); font-weight: 600;
+  }
+
+  /* The control stack: same controls, a third of the height.
+     Fourteen pairs and twelve venues wrapped to three rows each, which cost
+     more vertical space than the chart got. One scrollable row apiece keeps
+     every option reachable without pushing the chart off the screen. */
+  .lcp-bar { gap: 7px; }
+  .lcp-pairs, .lc-venues, .pwa-bar {
+    flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    width: 100%; padding-bottom: 2px;
+  }
+  .lcp-pairs::-webkit-scrollbar,
+  .lc-venues::-webkit-scrollbar,
+  .pwa-bar::-webkit-scrollbar { display: none; }
+  .lcp-pairs > *, .lc-venues > *, .pwa-bar > * { flex: 0 0 auto; }
+  .lcp-pairs { gap: 4px; }
+  .lcp-pair { padding: 6px 11px; font-size: 11.5px; }
+  .lc-venues { gap: 4px; }
+  .lc-chip { padding: 4px 7px; font-size: 9.5px; }
+  .seg-xs button { padding: 3px 7px; font-size: 10px; }
+  .pwa-bar { width: 100%; }
+  .pwa-btn, .pwa-pill { font-size: 10.5px; padding: 5px 9px; }
+
+  /* Panels: full width, taller, and the price axis stops eating the plot. */
+  .lcp-canvas-body { height: 300px; }
+  .lcp-chart-card .card-head { gap: 8px; }
+  #lcp-chart-wrap { height: 300px; }
+  .lcp-grid, .lcp-micro, .lcp-index, .lcp-call { grid-template-columns: 1fr !important; }
+
+  /* Dense readouts reflow instead of clipping. */
+  .cb-cols, .cb-row { grid-template-columns: 1fr 80px 66px 62px; font-size: 10.5px; }
+  .sg-levels { grid-template-columns: 1fr 1fr; }
+  .sg-vote { grid-template-columns: 58px 40px 1fr; }
+  .dc-levels, .os-head, .sg-plan { grid-template-columns: 1fr 1fr; }
+  .tr-cell { min-width: 0; flex: 1 1 30%; }
+  .lcp-trend { gap: 4px; }
+  .nw-row { grid-template-columns: 9px 26px 1fr auto; font-size: 10.5px; }
+}
+
+/* --------------------------------------------------------------------------
+   Small phones
+   -------------------------------------------------------------------------- */
+@media (max-width: 420px) {
+  .page-head h1 { font-size: 18px !important; }
+  .lcp-canvas-body, #lcp-chart-wrap { height: 260px; }
+  .sg-levels, .dc-levels, .os-head, .sg-plan { grid-template-columns: 1fr; }
+  .cb-cols, .cb-row { grid-template-columns: 1fr 72px 58px; }
+  .cb-cols span:nth-child(4), .cb-row .cb-val { display: none; }
+  #topbar .btn span, #topbar .btn { font-size: 12px; }
 }

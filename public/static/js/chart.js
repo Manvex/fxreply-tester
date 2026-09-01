@@ -146,7 +146,14 @@ const ChartMgr = (() => {
 
     if (opts.indicators !== false) paintIndicatorTail();
     if (follow) {
-      try { chart.timeScale().scrollToPosition(8, false); } catch (_) {}
+      // Keep a margin of blank space to the right, but scale it to the zoom.
+      // A fixed eight bars is fine across a wide view and shoves price into the
+      // left edge when you are looking at ten candles.
+      try {
+        const r = chart.timeScale().getVisibleLogicalRange();
+        const span = r ? Math.max(1, r.to - r.from) : 60;
+        chart.timeScale().scrollToPosition(Math.max(1, Math.min(8, Math.round(span * 0.12))), false);
+      } catch (_) {}
     }
   }
 

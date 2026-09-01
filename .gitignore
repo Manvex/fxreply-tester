@@ -7,3 +7,12 @@ dist/
 .pm2/
 *.tar.gz
 *.bak
+
+# Editor / tooling config that is specific to one machine
+.claude/
+
+# Scratch dumps from probing the exchange APIs by hand
+depth.json
+agg.json
+q.json
+y.json

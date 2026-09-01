@@ -138,7 +138,24 @@ const BacktestUI = (() => {
 
       setP(0.97, 'Computing statistics…');
       const stats = computeStats(broker, candles);
-      lastStats = { stats, broker, candles, sym, tf, news: newsEvents };
+
+      // Optional pass: re-price every fill against the book that really existed.
+      // Only the bars where a trade opened or closed get downloaded.
+      let micro = null;
+      const wantRefine = $('#bt-refine') && $('#bt-refine').checked;
+      if (wantRefine && broker.closed.length) {
+        try {
+          micro = await Refine.run({
+            broker, symInfo: info, tfSec: DataStore.TF_SEC[tf],
+            onProgress: (f, label) => setP(0.97 + f * 0.03, label),
+          });
+        } catch (e) {
+          console.warn('[refine] failed', e);
+          window.App.toast('Order-book re-pricing failed — showing modelled fills only', 'warn');
+        }
+      }
+
+      lastStats = { stats, broker, candles, sym, tf, news: newsEvents, micro };
 
       const meta = {
         sym, tf, bars: candles.length,
@@ -149,7 +166,7 @@ const BacktestUI = (() => {
         lev: parseInt($('#bt-leverage').value) || 100,
       };
 
-      renderResults(stats, broker, candles, meta);
+      renderResults(stats, broker, candles, meta, micro);
       renderChartMarkers(broker, candles, newsEvents, tf);
       window.App.setNewsEvents(newsEvents, tf);
       setP(1, 'Done');
@@ -194,7 +211,7 @@ const BacktestUI = (() => {
   }
 
   // ---- report root ------------------------------------------------------
-  function renderResults(s, broker, candles, meta) {
+  function renderResults(s, broker, candles, meta, micro) {
     $('#tester-empty').style.display = 'none';
     $('#tester-empty').classList.add('hidden');
     const res = $('#tester-results');
@@ -218,6 +235,7 @@ const BacktestUI = (() => {
     renderTrades(s, broker);
     renderMonthly(s);
     renderPropReport(broker, s);
+    MicroReport.render(micro, s, window.App.currentSymbolInfo);
   }
 
   // ---- overview: KPI cards ---------------------------------------------

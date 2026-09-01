@@ -92,6 +92,7 @@ const Replay = (() => {
     ChartMgr.setMarkers(markers);
     syncPositionLines();
     TradeOverlay.setEnabled(true);
+    window.LiveChart && LiveChart.refresh();   // a session owns the bars; stand down
 
     refreshUI();
     return true;
@@ -137,6 +138,7 @@ const Replay = (() => {
     snaps = [];
     markers = [];
     TradeOverlay.setEnabled(false);
+    window.LiveChart && LiveChart.refresh();   // session over — live may resume
     document.body.classList.remove('in-session');
     $('#replay-bar').classList.add('hidden');
     $('#ticket').classList.add('hidden');

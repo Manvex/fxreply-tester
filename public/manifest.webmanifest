@@ -1,0 +1,22 @@
+{
+  "name": "BlackTick — Backtesting & Live Crypto",
+  "short_name": "BlackTick",
+  "description": "Strategy backtesting on real market data, plus a consolidated live crypto book, footprint and signal engine.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Live Crypto", "url": "/#live", "description": "Consolidated book, footprint and signals" },
+    { "name": "Chart Terminal", "url": "/terminal", "description": "Charting, replay and backtests" }
+  ]
+}

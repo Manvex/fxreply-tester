@@ -8,9 +8,16 @@ export const terminalHTML = `<!DOCTYPE html>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230b0d10'/><path d='M6 21l6-7 5 4 9-11' stroke='%234dd4c0' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
 <script src="/static/lzma.js"></script>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0b0d10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BlackTick">
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css" rel="stylesheet">
 <link href="/static/css/theme.css" rel="stylesheet">
 <link href="/static/css/terminal.css" rel="stylesheet">
+<link href="/static/css/livecrypto.css" rel="stylesheet">
 <link href="/static/css/mobile.css" rel="stylesheet">
 </head>
 <body>
@@ -184,17 +191,20 @@ export const terminalHTML = `<!DOCTYPE html>
               <button class="tk-risk-btn" data-pct="2">2%</button>
             </div>
 
-            <div class="tk-btns">
-              <button class="btn btn-down" id="tk-sell">SELL <kbd>S</kbd></button>
-              <button class="btn btn-up" id="tk-buy">BUY <kbd>B</kbd></button>
-            </div>
-
             <div class="tk-risk">
               <div><span>Margin needed</span><b id="tk-margin">—</b></div>
               <div><span>Risk if SL hit</span><b id="tk-risk-cash">—</b></div>
               <div><span>% of balance</span><b id="tk-risk-pct">—</b></div>
               <div><span>Reward at TP</span><b id="tk-reward-cash">—</b></div>
               <div><span>Reward : risk</span><b id="tk-rr">—</b></div>
+            </div>
+          </div>
+          <!-- Actions sit outside the scrolling body: on a short chart pane the
+               fields scroll, but BUY / SELL / Close all stay reachable. -->
+          <div class="tk-foot">
+            <div class="tk-btns">
+              <button class="btn btn-down" id="tk-sell">SELL <kbd>S</kbd></button>
+              <button class="btn btn-up" id="tk-buy">BUY <kbd>B</kbd></button>
             </div>
             <button class="btn btn-outline btn-sm btn-block" id="tk-closeall">
               <i class="fa-solid fa-xmark"></i> Close all <kbd>C</kbd>
@@ -211,6 +221,8 @@ export const terminalHTML = `<!DOCTYPE html>
           <button class="dock-tab active" data-tab="tester"><i class="fa-solid fa-flask-vial"></i> Backtest Report</button>
           <button class="dock-tab" data-tab="positions"><i class="fa-solid fa-layer-group"></i> Positions <span class="tab-count" id="cnt-open">0</span></button>
           <button class="dock-tab" data-tab="news"><i class="fa-solid fa-bullhorn"></i> News <span class="tab-count" id="cnt-news">0</span></button>
+          <button class="dock-tab" data-tab="book"><i class="fa-solid fa-layer-group"></i> Order Book <span class="tab-count" id="cnt-venues">0</span></button>
+          <button class="dock-tab" data-tab="liquidity"><i class="fa-solid fa-fire"></i> Liquidity</button>
           <button class="dock-tab" data-tab="editor"><i class="fa-solid fa-code"></i> Strategy Editor</button>
           <div id="dock-actions">
             <span id="dock-status"></span>
@@ -239,6 +251,7 @@ export const terminalHTML = `<!DOCTYPE html>
                 <button class="res-tab" data-res="trades">Trades</button>
                 <button class="res-tab" data-res="monthly">Monthly</button>
                 <button class="res-tab" data-res="prop">Prop Firm</button>
+                <button class="res-tab" data-res="micro">Microstructure</button>
                 <div id="results-meta"></div>
               </div>
               <div class="res-page overview-page active" data-res="overview">
@@ -255,6 +268,7 @@ export const terminalHTML = `<!DOCTYPE html>
               <div class="res-page" data-res="trades"><div id="trades-body"></div></div>
               <div class="res-page" data-res="monthly"><div id="monthly-body"></div></div>
               <div class="res-page" data-res="prop"><div id="prop-body"></div></div>
+              <div class="res-page" data-res="micro"><div id="micro-body"></div></div>
             </div>
           </div>
 
@@ -271,6 +285,57 @@ export const terminalHTML = `<!DOCTYPE html>
                 <span class="eyebrow">Closed trades</span>
               </div>
               <div id="closed-trades-host"></div>
+            </div>
+          </div>
+
+          <!-- ---- Consolidated order book ---- -->
+          <div class="dock-page" data-page="book">
+            <div class="cb-wrap">
+              <div class="cb-toolbar">
+                <div class="cb-venues" id="cb-venues"></div>
+                <div class="seg" id="cb-quote">
+                  <button class="active" data-quote="USDT">USDT venues</button>
+                  <button data-quote="USD">USD venues</button>
+                  <button data-quote="all">Combine both</button>
+                </div>
+                <label class="cb-tick">Grouping
+                  <select id="cb-tick"><option value="auto" selected>Auto</option></select>
+                </label>
+                <button class="btn btn-sm" id="cb-toggle"><i class="fa-solid fa-play"></i> Connect</button>
+              </div>
+              <div id="cb-status" class="cb-status"></div>
+              <div id="cb-body" class="cb-body"></div>
+            </div>
+          </div>
+
+          <!-- ---- Liquidity map + footprint ---- -->
+          <div class="dock-page" data-page="liquidity">
+            <div class="lq-wrap">
+              <div class="lq-tools">
+                <span class="eyebrow">Liquidity map</span>
+                <div class="seg seg-xs" id="lq-band">
+                  <button data-band="0.15">&plusmn;0.15%</button>
+                  <button data-band="0.4" class="active">&plusmn;0.4%</button>
+                  <button data-band="1">&plusmn;1%</button>
+                </div>
+                <span class="eyebrow" style="margin-left:18px">Footprint</span>
+                <div class="seg seg-xs" id="lq-bars">
+                  <button data-bars="6">6</button>
+                  <button data-bars="12" class="active">12</button>
+                  <button data-bars="20">20</button>
+                </div>
+                <div class="seg seg-xs" id="lq-mult">
+                  <button data-mult="0" class="active">Auto</button>
+                  <button data-mult="1">1&times;</button>
+                  <button data-mult="5">5&times;</button>
+                  <button data-mult="20">20&times;</button>
+                </div>
+                <span class="lq-note" id="lq-note"></span>
+              </div>
+              <div class="lq-grid">
+                <div class="lq-pane"><canvas id="lq-heat"></canvas></div>
+                <div class="lq-pane"><canvas id="lq-foot"></canvas></div>
+              </div>
             </div>
           </div>
 
@@ -327,12 +392,39 @@ export const terminalHTML = `<!DOCTYPE html>
 
     <!-- ============================ RIGHT RAIL ============================ -->
     <aside id="rail">
-      <div class="rail-sec grow">
+      <div class="rail-sec grow" id="rail-watchlist-sec">
         <div class="rail-head">
           <span class="eyebrow"><i class="fa-solid fa-list"></i> Watchlist</span>
-          <button id="wl-add" data-tip="Search all instruments"><i class="fa-solid fa-magnifying-glass"></i></button>
+          <div class="rail-head-btns">
+            <button id="rail-live-on" class="hidden" data-tip="Show the live crypto book for this pair"><i class="fa-solid fa-bolt"></i></button>
+            <button id="wl-add" data-tip="Search all instruments"><i class="fa-solid fa-magnifying-glass"></i></button>
+          </div>
         </div>
         <div id="watchlist"></div>
+      </div>
+
+      <!-- Live crypto stack — takes the watchlist's place while a crypto pair
+           is open, because that is when there is something live to watch. -->
+      <div class="rail-sec grow hidden" id="rail-live-sec">
+        <div class="rail-head">
+          <span class="eyebrow"><i class="fa-solid fa-bolt"></i> <span id="rail-live-sym">Live</span></span>
+          <button id="rail-live-off" data-tip="Back to the watchlist"><i class="fa-solid fa-list"></i></button>
+        </div>
+        <div id="rail-live-venues" class="lc-venues"></div>
+        <div class="lc-stack">
+          <div class="lc-panel">
+            <div class="lc-title">Order book</div>
+            <div id="rail-book"></div>
+          </div>
+          <div class="lc-panel">
+            <div class="lc-title">Delta</div>
+            <div id="rail-delta"></div>
+          </div>
+          <div class="lc-panel">
+            <div class="lc-title">Whales</div>
+            <div id="rail-whales"></div>
+          </div>
+        </div>
       </div>
 
       <div class="rail-sec">
@@ -564,6 +656,17 @@ export const terminalHTML = `<!DOCTYPE html>
       <span class="field-hint">Marks releases on the chart and exposes them to strategies through
         <code>ctx.news</code>. Adds one request per calendar month.</span>
     </div>
+    <div class="field form-row-full" style="margin-top:4px">
+      <label class="switch">
+        <input type="checkbox" id="bt-refine">
+        <span>Re-price fills against real order-book data</span>
+      </label>
+      <span class="field-hint">After the run, every fill is priced again at the quote that actually
+        existed: real bid/ask from tick files for forex, indices, commodities and shares; size-based
+        slippage from archived book depth for crypto. Stops are re-priced at the tick that really
+        crossed them, so gaps cost what they cost. Downloads a few hundred small files — only the
+        bars where a trade opened or closed.</span>
+    </div>
     <div class="callout brand" style="margin-top:16px">
       <i class="fa-solid fa-circle-info"></i>
       <div>Longer ranges and lower timeframes download more files and take longer. A 2-year 1H forex test is roughly 24 monthly files; a 1-month M1 test is ~22 daily files.</div>
@@ -654,6 +757,26 @@ export const terminalHTML = `<!DOCTYPE html>
 <script src="/static/js/trade-overlay.js"></script>
 <script src="/static/js/news.js"></script>
 <script src="/static/js/engine.js"></script>
+<script src="/static/js/book.js"></script>
+<script src="/static/js/refine.js"></script>
+<script src="/static/js/exchanges.js"></script>
+<script src="/static/js/tape.js"></script>
+<script src="/static/js/cryptohub.js"></script>
+<script src="/static/js/livecrypto.js"></script>
+<script src="/static/js/micropanels.js"></script>
+<script src="/static/js/sessions.js"></script>
+<script src="/static/js/openstats.js"></script>
+<script src="/static/js/sessionbot.js"></script>
+<script src="/static/js/dailycall.js"></script>
+<script src="/static/js/pwa.js"></script>
+<script src="/static/js/derivs.js"></script>
+<script src="/static/js/risk.js"></script>
+<script src="/static/js/reads.js"></script>
+<script src="/static/js/signals.js"></script>
+<script src="/static/js/signal-ui.js"></script>
+<script src="/static/js/cbook.js"></script>
+<script src="/static/js/live-chart.js"></script>
+<script src="/static/js/micro-report.js"></script>
 <script src="/static/js/pine.js"></script>
 <script src="/static/js/strategies.js"></script>
 <script src="/static/js/strategy.js"></script>

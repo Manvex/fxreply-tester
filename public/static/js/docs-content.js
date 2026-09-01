@@ -120,6 +120,35 @@ slightly different price; over hundreds of trades this is usually a small effect
 <p>So a round trip costs one full spread plus commission on both sides. A position opened and closed
 at the same price is a loss, exactly as in reality.</p>
 
+<h3>Re-pricing fills against the real order book</h3>
+<p>A single spread number for a two-year test is a convenient fiction. Real spreads breathe: they
+tighten in the London session and blow out at the rollover, at the open, and on every data release.
+Tick <b>Re-price fills against real order-book data</b> in the backtest dialog and the run gets a
+second pass that prices every fill at the quote the market was actually showing.</p>
+<table>
+  <thead><tr><th>Instrument</th><th>What gets used</th><th>What it fixes</th></tr></thead>
+  <tbody>
+    <tr><td>Forex, indices, commodities, share CFDs</td>
+        <td>Dukascopy hourly tick files — real bid, ask and size at the touch</td>
+        <td>The spread you actually paid, and stops priced at the tick that really crossed them
+            rather than at the level, so a gap through a stop costs what it cost</td></tr>
+    <tr><td>Crypto</td>
+        <td>Binance archived book depth — resting notional at 1–5% from mid, once a minute</td>
+        <td>What your <em>size</em> cost: a 0.05 BTC order fills at the touch, a 200 BTC order
+            walks the book</td></tr>
+  </tbody>
+</table>
+<p>Only the bars where a trade opened or closed are downloaded, so the pass costs a few hundred
+small files rather than a full tick history. The results land in the <b>Microstructure</b> tab of
+the report, next to a histogram of every spread you were actually quoted with your assumption
+marked on it.</p>
+<blockquote>The trade sequence is held fixed. This tells you what the trades your strategy took
+really cost — not what the strategy would have done with better data. Changing fill prices would
+change later signals, and then there would be nothing left to compare against.</blockquote>
+<p>What it cannot do: simulate a limit order's place in the queue. That needs full per-level book
+state through time, and neither venue publishes it. Nothing free does. Every fill here is modelled
+as a market order.</p>
+
 <h3>Stops and targets inside a bar</h3>
 <p>This is where most backtesting software quietly flatters you. If a single bar's range contains
 both your stop loss and your take profit, the honest answer is <em>we don't know which was hit

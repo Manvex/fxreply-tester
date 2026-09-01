@@ -7,9 +7,16 @@ export const dashboardHTML = `<!DOCTYPE html>
 <title>BlackTick — Strategy Backtesting on Real Market Data</title>
 <meta name="description" content="Backtest trading strategies on real Dukascopy and Binance market data. JavaScript, Pine Script and Python. Prop-firm rule simulation included.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230b0d10'/><path d='M6 21l6-7 5 4 9-11' stroke='%234dd4c0' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0b0d10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BlackTick">
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css" rel="stylesheet">
 <link href="/static/css/theme.css" rel="stylesheet">
 <link href="/static/css/dashboard.css" rel="stylesheet">
+<link href="/static/css/livecrypto.css" rel="stylesheet">
 <link href="/static/css/mobile.css" rel="stylesheet">
 </head>
 <body>
@@ -35,6 +42,7 @@ export const dashboardHTML = `<!DOCTYPE html>
       <button class="nav-item active" data-nav="home"><i class="fa-solid fa-house"></i><span>Dashboard</span></button>
       <button class="nav-item" data-nav="wizard"><i class="fa-solid fa-wand-magic-sparkles"></i><span>New Backtest</span><span class="pill pill-brand nav-badge">Guided</span></button>
       <button class="nav-item" data-nav="strategies"><i class="fa-solid fa-code-branch"></i><span>Strategy Library</span></button>
+      <button class="nav-item" data-nav="live"><i class="fa-solid fa-bolt"></i><span>Live Crypto</span><span class="pill pill-brand nav-badge">Live</span></button>
       <button class="nav-item" data-nav="markets"><i class="fa-solid fa-globe"></i><span>Markets</span></button>
     </div>
 
@@ -380,6 +388,203 @@ export const dashboardHTML = `<!DOCTYPE html>
     </section>
 
     <!-- ------------------------------ MARKETS ------------------------------ -->
+    <!-- --------------------------- LIVE CRYPTO -------------------------- -->
+    <section class="page" data-page="live">
+      <div class="page-head">
+        <div>
+          <h1>Live Crypto</h1>
+          <p>The consolidated book, the liquidity map, the footprint and the tape for one pair,
+             streamed live from <b>twelve venues at once</b> — Binance, Bybit, OKX, Gate.io, Bitget,
+             Kraken, Coinbase, Bitstamp and Bitfinex on spot, plus the Binance, Bybit and OKX
+             perpetuals. Spot and perps are kept apart because they are different instruments
+             trading at different prices; switch between them above.</p>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="lcp-bar">
+          <div class="seg seg-xs" id="lcp-class">
+            <button data-class="crypto" class="active">Crypto</button>
+            <button data-class="index">Indices</button>
+          </div>
+          <div class="lcp-pairs" id="lcp-pairs"></div>
+          <div class="seg seg-xs" id="lcp-market">
+            <button data-market="spot" class="active">Spot</button>
+            <button data-market="perp">Perps</button>
+            <button data-market="all">Both</button>
+          </div>
+          <div class="seg seg-xs" id="lcp-quote">
+            <button data-quote="USDT" class="active">USDT</button>
+            <button data-quote="USD">USD</button>
+            <button data-quote="all">Both</button>
+          </div>
+          <div class="lc-venues" id="lcp-venues"></div>
+          <div class="pwa-bar" id="lcp-pwa"></div>
+        </div>
+        <div class="card lcp-chart-card">
+          <div class="card-head">
+            <div class="card-title">Chart</div>
+            <div class="seg seg-xs" id="lcp-tf">
+              <button data-tf="1m">1m</button>
+              <button data-tf="5m" class="active">5m</button>
+              <button data-tf="15m">15m</button>
+              <button data-tf="1h">1h</button>
+              <button data-tf="4h">4h</button>
+              <button data-tf="1d">1d</button>
+            </div>
+            <span class="lcp-ovnote" id="lcp-ovnote"></span>
+          </div>
+          <div class="card-body" style="padding:0">
+            <div id="lcp-chart-wrap"><div id="lcp-chart"></div></div>
+          </div>
+        </div>
+
+        <div class="lcp-trend" id="lcp-trend"></div>
+
+        <div class="lcp-index hidden" id="lcp-index">
+          <div class="card lcp-card">
+            <div class="card-head">
+              <div class="card-title">Sessions</div>
+              <span class="pill" id="lcp-tz">local</span>
+            </div>
+            <div class="card-body">
+              <div class="ses-chips" id="lcp-sessions"></div>
+              <div id="lcp-ses-now"></div>
+            </div>
+          </div>
+          <div class="card lcp-card">
+            <div class="card-head">
+              <div class="card-title">At the open</div>
+              <span class="pill" id="lcp-open-n">—</span>
+            </div>
+            <div class="card-body" id="lcp-openstats"></div>
+          </div>
+        </div>
+
+        <div class="lcp-call hidden" id="lcp-call-wrap">
+          <div class="card lcp-card">
+            <div class="card-head">
+              <div class="card-title">Today's open</div>
+              <span class="pill" id="lcp-call-when">—</span>
+              <span class="pill" id="lcp-call-score">no record yet</span>
+            </div>
+            <div class="card-body" id="lcp-call"></div>
+          </div>
+        </div>
+
+        <div class="lcp-index hidden" id="lcp-index2">
+          <div class="card lcp-card">
+            <div class="card-head">
+              <div class="card-title">Open forecast</div>
+              <div class="seg seg-xs" id="lcp-hist">
+                <button data-days="30" class="active">30d</button>
+                <button data-days="60">60d</button>
+                <button data-days="90">90d</button>
+              </div>
+              <span class="pill" id="lcp-fc-n">—</span>
+            </div>
+            <div class="card-body" id="lcp-forecast"></div>
+          </div>
+          <div class="card lcp-card">
+            <div class="card-head">
+              <div class="card-title">How violent each open is</div>
+              <span class="pill" id="lcp-vol-n">—</span>
+            </div>
+            <div class="card-body" id="lcp-volprofile"></div>
+          </div>
+        </div>
+
+        <div class="lcp-micro">
+          <div class="card lcp-card lcp-mcard">
+            <div class="card-head">
+              <div class="card-title">Liquidity map</div>
+              <div class="seg seg-xs" id="lcp-band">
+                <button data-band="0.15">&plusmn;0.15%</button>
+                <button data-band="0.4" class="active">&plusmn;0.4%</button>
+                <button data-band="1">&plusmn;1%</button>
+              </div>
+              <span class="lcp-ovnote" id="lcp-heat-note"></span>
+            </div>
+            <div class="card-body lcp-canvas-body"><canvas id="lcp-heat"></canvas></div>
+          </div>
+
+          <div class="card lcp-card lcp-mcard">
+            <div class="card-head">
+              <div class="card-title">Footprint</div>
+              <div class="seg seg-xs" id="lcp-fpbars">
+                <button data-bars="6">6</button>
+                <button data-bars="12" class="active">12</button>
+                <button data-bars="20">20</button>
+              </div>
+              <div class="seg seg-xs" id="lcp-fpmult">
+                <button data-mult="0" class="active">Auto</button>
+                <button data-mult="1">1&times;</button>
+                <button data-mult="5">5&times;</button>
+                <button data-mult="20">20&times;</button>
+              </div>
+              <span class="lcp-ovnote" id="lcp-foot-note"></span>
+            </div>
+            <div class="card-body lcp-canvas-body"><canvas id="lcp-foot"></canvas></div>
+          </div>
+        </div>
+
+        <div class="lcp-grid">
+          <div class="card lcp-card">
+            <div class="card-head"><div class="card-title">Order book</div>
+              <span class="pill" id="lcp-sym">—</span></div>
+            <div class="card-body" id="lcp-book"></div>
+          </div>
+          <div class="lcp-col">
+            <div class="card lcp-card">
+              <div class="card-head"><div class="card-title">Account</div>
+                <span class="pill" id="lcp-risk-note">sizing</span></div>
+              <div class="card-body">
+                <div class="rk-grid">
+                  <label class="rk-f"><span>Balance</span>
+                    <input id="rk-balance" type="number" min="0" step="100"></label>
+                  <label class="rk-f"><span>Risk per trade</span>
+                    <input id="rk-risk" type="number" min="0.1" max="10" step="0.1"></label>
+                  <label class="rk-f"><span>Leverage</span>
+                    <input id="rk-lev" type="number" min="1" max="125" step="1"></label>
+                  <label class="rk-f"><span>Hold (hours)</span>
+                    <input id="rk-hold" type="number" min="0" max="72" step="1"></label>
+                </div>
+                <p class="sg-note">Sizing comes from the stop, not from a fixed contract
+                  count: a wider stop means a smaller position for the same money at risk.
+                  Leverage does not change the risk — it only decides where the exchange
+                  liquidates you.</p>
+              </div>
+            </div>
+            <div class="card lcp-card lcp-signal-card">
+              <div class="card-head"><div class="card-title">Signal</div>
+                <span class="pill" id="lcp-sig-state">idle</span></div>
+              <div class="card-body" id="lcp-signal"></div>
+            </div>
+            <div class="card lcp-card">
+              <div class="card-head"><div class="card-title">Calendar</div>
+                <span class="pill" id="lcp-news-count">0</span></div>
+              <div class="card-body" id="lcp-news"></div>
+            </div>
+            <div class="card lcp-card">
+              <div class="card-head"><div class="card-title">Delta</div></div>
+              <div class="card-body" id="lcp-delta"></div>
+            </div>
+            <div class="card lcp-card">
+              <div class="card-head"><div class="card-title">Whales</div></div>
+              <div class="card-body" id="lcp-whales"></div>
+            </div>
+          </div>
+        </div>
+        <div class="callout" style="margin-top:16px">
+          <i class="fa-solid fa-circle-info"></i>
+          <div>Live only. No exchange publishes historical per-level book state, so none of this
+               can feed a backtest — what history does support is the <b>Microstructure</b> pass in
+               the terminal's backtest report. Binance, Bybit and OKX quote in USDT while Kraken and
+               Coinbase quote in USD; the ladder consolidates the USDT venues so a single price is
+               comparing like with like.</div>
+        </div>
+      </div>
+    </section>
+
     <section class="page" data-page="markets">
       <div class="page-head">
         <div>
@@ -492,6 +697,27 @@ export const dashboardHTML = `<!DOCTYPE html>
 <script src="/static/js/news.js"></script>
 <script src="/static/js/strategies.js"></script>
 <script src="/static/js/docs-content.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="/static/lzma.js"></script>
+<script src="/static/js/data.js"></script>
+<script src="/static/js/indicators.js"></script>
+<script src="/static/js/chart.js"></script>
+<script src="/static/js/exchanges.js"></script>
+<script src="/static/js/tape.js"></script>
+<script src="/static/js/cryptohub.js"></script>
+<script src="/static/js/livecrypto.js"></script>
+<script src="/static/js/micropanels.js"></script>
+<script src="/static/js/live-chart.js"></script>
+<script src="/static/js/sessions.js"></script>
+<script src="/static/js/openstats.js"></script>
+<script src="/static/js/sessionbot.js"></script>
+<script src="/static/js/dailycall.js"></script>
+<script src="/static/js/pwa.js"></script>
+<script src="/static/js/derivs.js"></script>
+<script src="/static/js/risk.js"></script>
+<script src="/static/js/reads.js"></script>
+<script src="/static/js/signals.js"></script>
+<script src="/static/js/signal-ui.js"></script>
 <script src="/static/js/dashboard.js"></script>
 </body>
 </html>`

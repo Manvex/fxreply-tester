@@ -222,6 +222,7 @@
     $$('.tf-btn').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     App.currentTF = tf;
+    window.LiveChart && LiveChart.refresh();
   }
 
   // ------------------------------------------------------------------ symbol picker
@@ -294,6 +295,7 @@
     App.closeModals();
     loadChart();
     highlightWatchlist();
+    App.refreshDom && App.refreshDom();
   }
   function openSymbolPicker() {
     openDialog('#dlg-symbol');
@@ -604,6 +606,105 @@
   });
   $('#editor-run').addEventListener('click', () => openDialog('#dlg-backtest'));
   $('#btn-tester').addEventListener('click', () => openDialog('#dlg-backtest'));
+
+  // ------------------------------------------------------------------ live crypto rail
+  // The watchlist and the live stack share the rail's tall slot. Crypto gets the
+  // live view by default because that is the only feed with something to show in
+  // real time; the user can pin it back to the watchlist and that choice sticks.
+  const RAIL_LS = 'bt_rail_mode';
+  let railPref = null;                       // null = follow the instrument
+  try { railPref = localStorage.getItem(RAIL_LS); } catch (_e) {}
+
+  function railWantsLive() {
+    if (!window.CryptoHub || !CryptoHub.isCrypto(App.currentSymbol)) return false;
+    return railPref !== 'watchlist';
+  }
+
+  function syncRail() {
+    const wl = $('#rail-watchlist-sec'), lv = $('#rail-live-sec');
+    if (!wl || !lv) return;
+    const crypto = window.CryptoHub && CryptoHub.isCrypto(App.currentSymbol);
+    const live = railWantsLive();
+
+    wl.classList.toggle('hidden', live);
+    lv.classList.toggle('hidden', !live);
+    $('#rail-live-on') && $('#rail-live-on').classList.toggle('hidden', !crypto || live);
+    if (live) {
+      $('#rail-live-sym').textContent = App.currentSymbol;
+      CryptoHub.setSymbol(App.currentSymbol);
+      LiveCrypto.mount({
+        book: $('#rail-book'), delta: $('#rail-delta'),
+        whales: $('#rail-whales'), venues: $('#rail-live-venues'),
+      }, { density: 'rail', symbol: App.currentSymbol });
+    } else {
+      window.LiveCrypto && LiveCrypto.unmount();
+    }
+  }
+
+  $('#lq-band') && $('#lq-band').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    $$('#lq-band button').forEach(x => x.classList.toggle('active', x === b));
+    MicroPanels.setBand(parseFloat(b.dataset.band));
+  });
+  $('#lq-mult') && $('#lq-mult').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    $$('#lq-mult button').forEach(x => x.classList.toggle('active', x === b));
+    MicroPanels.setFpMult(parseInt(b.dataset.mult));
+  });
+  $('#lq-bars') && $('#lq-bars').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    $$('#lq-bars button').forEach(x => x.classList.toggle('active', x === b));
+    MicroPanels.setBars(parseInt(b.dataset.bars));
+  });
+
+  $('#rail-live-on') && $('#rail-live-on').addEventListener('click', () => {
+    railPref = 'live';
+    try { localStorage.setItem(RAIL_LS, railPref); } catch (_e) {}
+    syncRail();
+  });
+  $('#rail-live-off') && $('#rail-live-off').addEventListener('click', () => {
+    railPref = 'watchlist';
+    try { localStorage.setItem(RAIL_LS, railPref); } catch (_e) {}
+    syncRail();
+  });
+
+  // Called whenever the instrument, timeframe or session state changes.
+  App.refreshDom = () => {
+    window.ConsolidatedBook && ConsolidatedBook.onSymbolChange();
+    window.LiveChart && LiveChart.refresh();
+    window.MicroPanels && MicroPanels.onSymbolChange();
+    syncRail();
+  };
+  // The liquidity panels hold exchange sockets open, so they only run while
+  // their tab is the one on screen.
+  function syncLiquidityTab() {
+    const on = $('.dock-tab[data-tab="liquidity"]')?.classList.contains('active');
+    if (!window.MicroPanels) return;
+    if (on && CryptoHub.isCrypto(App.currentSymbol)) {
+      MicroPanels.mount({ heat: $('#lq-heat'), foot: $('#lq-foot') });
+    } else {
+      MicroPanels.unmount();
+    }
+    const note = $('#lq-note');
+    if (note) {
+      if (!CryptoHub.isCrypto(App.currentSymbol)) {
+        note.textContent = `${App.currentSymbol} has no per-level feed — crypto only`;
+      } else {
+        const st = MicroPanels.status();
+        note.textContent = `${st.seconds}s of book · ${st.backfill || st.bars + ' bars'}`;
+      }
+    }
+  }
+  $$('.dock-tab').forEach(t => t.addEventListener('click', () => setTimeout(syncLiquidityTab, 30)));
+  setInterval(() => { if ($('#lq-note')) syncLiquidityTab(); }, 2000);
+
+  window.PWA && PWA.init();
+  window.ConsolidatedBook && ConsolidatedBook.init();
+  window.LiveChart && LiveChart.init();
+  syncRail();
 
   // ------------------------------------------------------------------ backtest dialog
   $('#bt-prop').addEventListener('change', e =>
